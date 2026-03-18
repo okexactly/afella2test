@@ -16,6 +16,8 @@ const EYE_OPEN_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3.2"/></svg>';
 const EYE_CLOSED_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.9 10.9 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3.4 4.2"/><path d="M6.2 6.3A18 18 0 0 0 2 12s3.5 7 10 7c1.4 0 2.6-.3 3.8-.7"/></svg>';
+const DICE_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/></svg>';
 const LOCK_INLINE_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10h-1V7a4 4 0 0 0-8 0v3H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-7-3a2 2 0 0 1 4 0v3h-4V7z"/></svg>';
 const FOLDER_ICON =
@@ -23,6 +25,10 @@ const FOLDER_ICON =
 const BACK_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5 3 12l7 7"/><path d="M3 12h18"/></svg>';
 const FAVORITES_STORAGE_KEY = "afella2:favorites:v1";
+const DISABLED_LAYERS_STORAGE_KEY = "afella2:disabled-layers:v1";
+const RANDOM_HIDE_EXCLUDED_CATEGORIES = new Set(["bkg", "outfit"]);
+const DEFAULT_HIDE_CHANCE = 0.15;
+const CHARACTER_HIDE_CHANCE = 0.05;
 
 const sidebar = document.getElementById("sidebar");
 const canvas = document.getElementById("canvas");
@@ -54,6 +60,7 @@ let actionButtonsDisabled = true;
 let actionDisableOwnerRequestId = null;
 let randomizeLoadingOwnerRequestId = null;
 let favorites = [];
+let persistedDisabledLayers = {};
 
 function createLayerElements() {
   canvas.innerHTML = "";
@@ -88,6 +95,26 @@ function decodeFileName(filePath) {
 
 function randomItem(items) {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function isRandomHideExcludedCategory(layerName) {
+  return RANDOM_HIDE_EXCLUDED_CATEGORIES.has(layerName);
+}
+
+function getCategoryHideChance(layerName) {
+  if (isRandomHideExcludedCategory(layerName)) {
+    return 0;
+  }
+
+  if (layerName === "character") {
+    return CHARACTER_HIDE_CHANCE;
+  }
+
+  return DEFAULT_HIDE_CHANCE;
+}
+
+function getAvailableSources(state) {
+  return state.files.filter((source) => !state.disabled.has(source));
 }
 
 function preload(src) {
@@ -242,6 +269,71 @@ function loadFavoritesFromStorage() {
     persistFavorites();
   } catch {
     favorites = [];
+  }
+}
+
+function loadDisabledLayersFromStorage() {
+  persistedDisabledLayers = {};
+
+  try {
+    const raw = window.localStorage.getItem(DISABLED_LAYERS_STORAGE_KEY);
+
+    if (!raw) {
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return;
+    }
+
+    const normalized = {};
+
+    LAYER_ORDER.forEach((layerName) => {
+      const sources = parsed[layerName];
+
+      if (!Array.isArray(sources)) {
+        return;
+      }
+
+      const uniqueSources = Array.from(
+        new Set(sources.filter((source) => typeof source === "string"))
+      );
+
+      if (uniqueSources.length > 0) {
+        normalized[layerName] = uniqueSources;
+      }
+    });
+
+    persistedDisabledLayers = normalized;
+  } catch {
+    persistedDisabledLayers = {};
+  }
+}
+
+function persistDisabledLayers() {
+  try {
+    const serialized = {};
+
+    LAYER_ORDER.forEach((layerName) => {
+      const state = getLayerState(layerName);
+
+      if (!state || state.disabled.size === 0) {
+        return;
+      }
+
+      serialized[layerName] = Array.from(state.disabled)
+        .filter((source) => state.files.includes(source))
+        .sort();
+    });
+
+    window.localStorage.setItem(
+      DISABLED_LAYERS_STORAGE_KEY,
+      JSON.stringify(serialized)
+    );
+  } catch {
+    // Ignore storage failures silently.
   }
 }
 
@@ -507,6 +599,8 @@ function applyStackSnapshot(snapshot) {
 
     state.selected = selected;
   });
+
+  persistDisabledLayers();
 }
 
 async function restorePreviousStack() {
@@ -838,10 +932,17 @@ function updateCategoryView(layerName) {
   }
 
   const currentLabel = state.selected ? decodeFileName(state.selected) : "None selected";
-  const lockBadge = state.locked
-    ? `<span class="current-lock-icon" title="Locked" aria-label="Locked">${LOCK_INLINE_ICON}</span>`
-    : "";
-  view.current.innerHTML = `${currentLabel}${lockBadge}`;
+  view.current.textContent = currentLabel;
+  view.summaryLockBtn.hidden = !state.locked;
+  view.summaryLockBtn.setAttribute(
+    "aria-label",
+    state.locked
+      ? `Unlock ${formatLayerName(layerName)} layer`
+      : `No locked layer in ${formatLayerName(layerName)}`
+  );
+  view.summaryLockBtn.title = state.locked
+    ? "Unlock locked layer"
+    : "No locked layer";
 
   view.visibilityBtn.classList.toggle("is-hidden", state.hidden);
   view.visibilityBtn.setAttribute("aria-pressed", String(state.hidden));
@@ -849,7 +950,11 @@ function updateCategoryView(layerName) {
     "aria-label",
     `${state.hidden ? "Show" : "Hide"} ${formatLayerName(layerName)} layer`
   );
+  view.visibilityBtn.title = "Show or hide this category in the final image";
   view.visibilityBtn.innerHTML = state.hidden ? EYE_CLOSED_ICON : EYE_OPEN_ICON;
+
+  const availableCount = getAvailableSources(state).length;
+  view.categoryRandomizeBtn.disabled = availableCount === 0;
 
   view.category.classList.toggle("is-layer-hidden", state.hidden);
 
@@ -1037,6 +1142,7 @@ async function pickLayer(layerName, source) {
 
   if (state.disabled.has(source)) {
     state.disabled.delete(source);
+    persistDisabledLayers();
   }
 
   const changedSelection = state.selected !== source;
@@ -1075,6 +1181,7 @@ async function toggleLayerDisabled(layerName, source) {
     }
   }
 
+  persistDisabledLayers();
   updateCategoryView(layerName);
   await renderSelectedLayers(
     isDisabledNow ? "Layer removed from random pool" : "Layer enabled in random pool"
@@ -1101,6 +1208,19 @@ async function toggleLayerLock(layerName, source) {
   await renderSelectedLayers(state.locked ? "Layer locked" : "Layer unlocked");
 }
 
+async function unlockCategoryLock(layerName) {
+  const state = getLayerState(layerName);
+
+  if (!state || !state.locked) {
+    return;
+  }
+
+  capturePreviousStackSnapshot();
+  state.locked = null;
+  updateCategoryView(layerName);
+  await renderSelectedLayers("Layer unlocked");
+}
+
 async function toggleCategoryVisibility(layerName) {
   const state = getLayerState(layerName);
 
@@ -1117,6 +1237,41 @@ async function toggleCategoryVisibility(layerName) {
   );
 }
 
+async function randomizeCategory(layerName) {
+  const state = getLayerState(layerName);
+
+  if (!state) {
+    return;
+  }
+
+  const available = getAvailableSources(state);
+
+  if (available.length === 0) {
+    setStatus(`No enabled images in ${formatLayerName(layerName)}`);
+    return;
+  }
+
+  capturePreviousStackSnapshot();
+
+  const pool =
+    available.length > 1 && state.selected
+      ? available.filter((source) => source !== state.selected)
+      : available;
+  const nextSource = randomItem(pool.length > 0 ? pool : available);
+  const changedSelection = state.selected !== nextSource;
+
+  if (changedSelection && state.locked) {
+    state.locked = null;
+  }
+
+  state.selected = nextSource;
+  updateCategoryView(layerName);
+  await renderSelectedLayers(`Randomized ${formatLayerName(layerName)} layer`, {
+    disableActions: true,
+    blurDuringLoad: true
+  });
+}
+
 function createLayerControls() {
   layerControls.innerHTML = "";
   layerState.clear();
@@ -1126,12 +1281,17 @@ function createLayerControls() {
 
   CONTROL_ORDER.forEach((layerName) => {
     const files = manifest.categories[layerName] || [];
+    const storedDisabledForLayer = Array.isArray(persistedDisabledLayers[layerName])
+      ? persistedDisabledLayers[layerName]
+      : [];
 
     const state = {
       files,
       selected: null,
       locked: null,
-      disabled: new Set(),
+      disabled: new Set(
+        storedDisabledForLayer.filter((source) => files.includes(source))
+      ),
       hidden: false
     };
 
@@ -1161,7 +1321,20 @@ function createLayerControls() {
     current.className = "layer-category-current";
     current.textContent = files.length === 0 ? "No images" : "None selected";
 
-    summary.append(caret, name, current);
+    const summaryLockBtn = document.createElement("button");
+    summaryLockBtn.type = "button";
+    summaryLockBtn.className = "summary-lock-btn";
+    summaryLockBtn.innerHTML = LOCK_INLINE_ICON;
+    summaryLockBtn.hidden = true;
+    summaryLockBtn.setAttribute("aria-label", `Unlock ${formatLayerName(layerName)} layer`);
+    summaryLockBtn.title = "Unlock locked layer";
+    summaryLockBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      unlockCategoryLock(layerName);
+    });
+
+    summary.append(caret, name, current, summaryLockBtn);
     category.appendChild(summary);
 
     const list = document.createElement("div");
@@ -1229,19 +1402,36 @@ function createLayerControls() {
       toggleCategoryVisibility(layerName);
     });
 
-    categoryRow.append(category, visibilityBtn);
+    const categoryRandomizeBtn = document.createElement("button");
+    categoryRandomizeBtn.type = "button";
+    categoryRandomizeBtn.className = "category-randomize-btn";
+    categoryRandomizeBtn.innerHTML = DICE_ICON;
+    categoryRandomizeBtn.setAttribute(
+      "aria-label",
+      `Randomize ${formatLayerName(layerName)} layer`
+    );
+    categoryRandomizeBtn.title = "Randomize only this category";
+    categoryRandomizeBtn.addEventListener("click", () => {
+      randomizeCategory(layerName);
+    });
+
+    categoryRow.append(category, visibilityBtn, categoryRandomizeBtn);
     layerControls.appendChild(categoryRow);
 
     layerView.set(layerName, {
       category,
       current,
+      summaryLockBtn,
       visibilityBtn,
+      categoryRandomizeBtn,
       items: itemViewMap
     });
   });
+
+  persistDisabledLayers();
 }
 
-async function randomizeLayers() {
+async function randomizeLayers({ randomizeVisibility = true } = {}) {
   if (!manifest) {
     return;
   }
@@ -1257,10 +1447,18 @@ async function randomizeLayers() {
       return;
     }
 
-    const available = state.files.filter((source) => !state.disabled.has(source));
+    const available = getAvailableSources(state);
 
     if (state.locked && !available.includes(state.locked)) {
       state.locked = null;
+    }
+
+    if (randomizeVisibility) {
+      state.hidden = state.locked
+        ? false
+        : Math.random() < getCategoryHideChance(layerName);
+    } else {
+      state.hidden = false;
     }
 
     if (state.locked) {
@@ -1295,6 +1493,7 @@ async function randomizeLayers() {
 async function initialize() {
   createLayerElements();
   loadFavoritesFromStorage();
+  loadDisabledLayersFromStorage();
   renderFavoritesGallery();
   updateFavoriteButtonState();
 
@@ -1310,7 +1509,7 @@ async function initialize() {
     renderFavoritesGallery();
 
     setActionButtonsDisabled(false);
-    await randomizeLayers();
+    await randomizeLayers({ randomizeVisibility: false });
   } catch {
     setStatus("Missing manifest. Run: node scripts/generate-manifest.mjs");
     setActionButtonsDisabled(true);
