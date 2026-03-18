@@ -10,9 +10,11 @@
   --active: #65a2ff;
   --action-size: 44px;
   --layout-offset: clamp(0.9rem, 4vh, 2.6rem);
-  --sidebar-width: 380px;
-  --layout-gap: 1rem;
+  --sidebar-image-offset: clamp(0.18rem, 0.8vh, 0.42rem);
+  --sidebar-width: 350px;
+  --layout-gap: 0.1rem;
   --max-center-shift: calc((var(--sidebar-width) + var(--layout-gap)) * 0.5);
+  --image-viewport-padding: 2rem;
 }
 
 * {
@@ -99,13 +101,16 @@ body {
 
 .sidebar {
   position: sticky;
-  top: var(--layout-offset);
-  max-height: calc(100dvh - (var(--layout-offset) + 1.25rem));
+  top: calc(var(--layout-offset) + var(--sidebar-image-offset));
+  margin-top: var(--sidebar-image-offset);
+  max-height: calc(
+    100dvh - (var(--layout-offset) + var(--sidebar-image-offset) + 1.25rem)
+  );
   border: 1px solid var(--border);
   border-radius: 14px;
   background: rgba(25, 29, 34, 0.92);
   box-shadow: 0 16px 45px rgba(0, 0, 0, 0.28);
-  padding: 0.9rem;
+  padding: calc(0.9rem - 1px) 0.9rem;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 0.85rem;
@@ -131,7 +136,7 @@ body {
   line-height: 0.9;
   cursor: pointer;
   opacity: 0.3;
-  padding: 0.14rem 0.2rem;
+  padding: calc(0.14rem - 1px) 0.2rem;
 }
 
 .sidebar-close-btn span {
@@ -185,7 +190,7 @@ body.sidebar-collapsed .sidebar-open-btn {
   grid-template-columns: auto auto 1fr;
   gap: 0.55rem;
   align-items: center;
-  padding: 0.55rem 0.65rem;
+  padding: calc(0.55rem - 1px) 0.65rem;
   cursor: pointer;
   list-style: none;
 }
@@ -297,7 +302,7 @@ body.sidebar-collapsed .sidebar-open-btn {
 
 .layer-empty {
   margin: 0;
-  padding: 0.7rem;
+  padding: calc(0.7rem - 1px) 0.7rem;
   color: var(--muted);
   font-size: 0.85rem;
 }
@@ -307,7 +312,7 @@ body.sidebar-collapsed .sidebar-open-btn {
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 0.35rem;
   align-items: center;
-  padding: 0.35rem 0.45rem;
+  padding: calc(0.35rem - 1px) 0.45rem;
   border-bottom: 1px solid rgba(42, 49, 57, 0.55);
 }
 
@@ -329,7 +334,7 @@ body.sidebar-collapsed .sidebar-open-btn {
   color: var(--ink);
   text-align: left;
   border-radius: 7px;
-  padding: 0.32rem 0.42rem;
+  padding: calc(0.32rem - 1px) 0.42rem;
   cursor: pointer;
   font-size: 0.82rem;
   overflow: hidden;
@@ -350,7 +355,7 @@ body.sidebar-collapsed .sidebar-open-btn {
   border-radius: 7px;
   background: #101418;
   color: var(--ink);
-  padding: 0.22rem 0.48rem;
+  padding: calc(0.22rem - 1px) 0.48rem;
   font-size: 0.72rem;
   font-weight: 700;
   cursor: pointer;
@@ -396,6 +401,9 @@ body.sidebar-collapsed .sidebar-open-btn {
 
 .canvas {
   width: min(100%, 820px);
+  max-height: calc(
+    100dvh - (var(--layout-offset) + var(--image-viewport-padding))
+  );
   aspect-ratio: var(--canvas-ratio, 1 / 1);
   position: relative;
   border: 0;
@@ -440,6 +448,66 @@ body.sidebar-collapsed .sidebar-open-btn {
   cursor: pointer;
   transition: transform 120ms ease, filter 120ms ease;
   width: 100%;
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.btn-label,
+.btn-loader {
+  grid-area: 1 / 1;
+}
+
+.btn-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.loader-dot {
+  width: 0.2rem;
+  height: 0.2rem;
+  border-radius: 999px;
+  background: rgba(9, 19, 15, 0.35);
+}
+
+.randomize-btn.is-loading .btn-label {
+  opacity: 0;
+}
+
+.randomize-btn.is-loading .btn-loader {
+  opacity: 1;
+}
+
+.randomize-btn.is-loading .loader-dot {
+  animation: dotPulse 780ms ease-in-out infinite;
+}
+
+.randomize-btn.is-loading .loader-dot:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.randomize-btn.is-loading .loader-dot:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.randomize-btn.is-loading .loader-dot:nth-child(3) {
+  animation-delay: 180ms;
+}
+
+.randomize-btn.is-loading .loader-dot:nth-child(4) {
+  animation-delay: 270ms;
+}
+
+.randomize-btn.is-loading .loader-dot:nth-child(5) {
+  animation-delay: 360ms;
+}
+
+.randomize-btn.is-loading .loader-dot:nth-child(6) {
+  animation-delay: 450ms;
 }
 
 .randomize-btn:hover:enabled {
@@ -488,6 +556,19 @@ body.sidebar-collapsed .sidebar-open-btn {
   color: var(--muted);
 }
 
+@keyframes dotPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    background: rgba(9, 19, 15, 0.35);
+  }
+
+  45% {
+    transform: scale(1.85);
+    background: rgba(9, 19, 15, 0.96);
+  }
+}
+
 @media (min-width: 1500px) {
   body:not(.sidebar-collapsed) .app {
     left: calc(
@@ -510,6 +591,7 @@ body.sidebar-collapsed .sidebar-open-btn {
   .sidebar {
     position: static;
     max-height: none;
+    margin-top: 0;
   }
 
   .layer-controls {
@@ -517,6 +599,7 @@ body.sidebar-collapsed .sidebar-open-btn {
   }
 
   .canvas {
+    max-height: min(62dvh, calc(100dvh - 1.2rem));
     border-radius: 0;
   }
 

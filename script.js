@@ -18,6 +18,11 @@ const EYE_CLOSED_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.9 10.9 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3.4 4.2"/><path d="M6.2 6.3A18 18 0 0 0 2 12s3.5 7 10 7c1.4 0 2.6-.3 3.8-.7"/></svg>';
 const LOCK_INLINE_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10h-1V7a4 4 0 0 0-8 0v3H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-7-3a2 2 0 0 1 4 0v3h-4V7z"/></svg>';
+const IS_LOCALHOST = /^(localhost|127\\.0\\.0\\.1|::1)$/.test(
+  window.location.hostname
+);
+// Set to 0 to disable local fake latency.
+const LOCALHOST_FAKE_LATENCY_MS = IS_LOCALHOST ? 900 : 0;
 
 const canvas = document.getElementById("canvas");
 const layerControls = document.getElementById("layerControls");
@@ -72,9 +77,20 @@ function preload(src) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function setActionButtonsDisabled(disabled) {
   randomizeBtn.disabled = disabled;
   downloadBtn.disabled = disabled;
+}
+
+function setRandomizeLoading(isLoading) {
+  randomizeBtn.classList.toggle("is-loading", isLoading);
+  randomizeBtn.setAttribute("aria-busy", String(isLoading));
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -440,12 +456,15 @@ async function renderSelectedLayers(
   const picks = getSelectionPicks();
   const requestId = ++renderRequestId;
 
+  setRandomizeLoading(true);
+
   if (disableActions) {
     setActionButtonsDisabled(true);
   }
 
   if (picks.length === 0) {
     statusEl.textContent = "No layers selected.";
+    setRandomizeLoading(false);
     if (disableActions) {
       setActionButtonsDisabled(false);
     }
@@ -456,6 +475,11 @@ async function renderSelectedLayers(
     const loadedImages = await Promise.all(
       picks.map((pick) => preload(pick.source))
     );
+
+    if (LOCALHOST_FAKE_LATENCY_MS > 0) {
+      await sleep(LOCALHOST_FAKE_LATENCY_MS);
+    }
+
     updateCanvasAspectRatio(loadedImages);
 
     if (requestId !== renderRequestId) {
@@ -481,6 +505,9 @@ async function renderSelectedLayers(
       statusEl.textContent = "Could not load one or more selected images.";
     }
   } finally {
+    if (requestId === renderRequestId) {
+      setRandomizeLoading(false);
+    }
     if (requestId === renderRequestId && disableActions) {
       setActionButtonsDisabled(false);
     }
@@ -820,6 +847,7 @@ if (sidebarOpenBtn) {
 }
 
 setSidebarCollapsed(false);
+setRandomizeLoading(false);
 
 initializeParticleField();
 initializeCanvasTilt();
