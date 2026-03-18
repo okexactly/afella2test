@@ -53,7 +53,11 @@ const DICE_FACE_PIPS = {
   ]
 };
 const DICE_SHUFFLE_INTERVAL_MS = 95;
-const DICE_ICON = buildDiceIcon(2);
+const DICE_ICONS_BY_FACE = DICE_FACE_VALUES.reduce((icons, face) => {
+  icons[face] = buildDiceIcon(face);
+  return icons;
+}, {});
+const DICE_ICON = DICE_ICONS_BY_FACE[2];
 const LOCK_INLINE_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10h-1V7a4 4 0 0 0-8 0v3H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-7-3a2 2 0 0 1 4 0v3h-4V7z"/></svg>';
 const FOLDER_ICON =
@@ -72,6 +76,8 @@ const RANDOM_HIDE_EXCLUDED_CATEGORIES = new Set(["bkg", "outfit"]);
 const DEFAULT_HIDE_CHANCE = 0.15;
 const CHARACTER_HIDE_CHANCE = 0.05;
 const MAX_UNDO_HISTORY = 3;
+const IMAGE_WARMUP_CONCURRENCY = 3;
+const IMAGE_WARMUP_IDLE_TIMEOUT_MS = 220;
 
 const sidebar = document.getElementById("sidebar");
 const canvas = document.getElementById("canvas");
@@ -101,11 +107,14 @@ const clearFavoritesBtn = document.getElementById("clearFavoritesBtn");
 const clearFavoritesConfirmModal = document.getElementById("clearFavoritesConfirmModal");
 const clearFavoritesConfirmYesBtn = document.getElementById("clearFavoritesConfirmYesBtn");
 const clearFavoritesConfirmNoBtn = document.getElementById("clearFavoritesConfirmNoBtn");
+const SIDEBAR_MINT_HOME_ICON = sidebarMintBtn ? sidebarMintBtn.innerHTML : "";
 
 const layerElements = new Map();
 const layerState = new Map();
 const layerView = new Map();
+const imagePreloadCache = new Map();
 let compositePreviewImage = null;
+let initialLoadMessageEl = null;
 
 let manifest = null;
 let renderRequestId = 0;
@@ -117,12 +126,17 @@ let actionDisableOwnerRequestId = null;
 let randomizeLoadingOwnerRequestId = null;
 let diceShuffleOwnerRequestId = null;
 let diceShuffleIntervalId = null;
+let layerNameShuffleOwnerRequestId = null;
+let layerNameShuffleIntervalId = null;
 let refreshParticleFieldEffects = null;
 let refreshCanvasTiltEffects = null;
 let favorites = [];
 let persistedDisabledLayers = {};
 let sidebarViewMode = "layers";
 let metadataTemplate = null;
+let imageWarmupStarted = false;
+let hasRenderedCompositeOnce = false;
+let favoriteSparkleTimeoutId = null;
 
 function getSettingsToggleEntries() {
   return [
@@ -134,6 +148,13 @@ function getSettingsToggleEntries() {
 
 function createLayerElements() {
   canvas.innerHTML = "";
+  hasRenderedCompositeOnce = false;
+
+  const initialMessage = document.createElement("p");
+  initialMessage.className = "canvas-initial-load-message";
+  initialMessage.textContent = "initial load can take some time";
+  canvas.appendChild(initialMessage);
+  initialLoadMessageEl = initialMessage;
 
   LAYER_ORDER.forEach((layerName) => {
     const img = document.createElement("img");
@@ -204,12 +225,138 @@ function getAvailableSources(state) {
 }
 
 function preload(src) {
-  return new Promise((resolve, reject) => {
+  if (typeof src !== "string" || src.length === 0) {
+    return Promise.reject(new Error("Missing image source"));
+  }
+
+  const cachedPromise = imagePreloadCache.get(src);
+
+  if (cachedPromise) {
+    return cachedPromise;
+  }
+
+  const preloadPromise = new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = reject;
+    image.decoding = "async";
+
+    let settled = false;
+
+    function resolveWithImage() {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve(image);
+    }
+
+    function rejectWithError() {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(new Error(`Could not load image: ${src}`));
+    }
+
+    image.onload = () => {
+      if (typeof image.decode === "function") {
+        image.decode().catch(() => null).finally(resolveWithImage);
+        return;
+      }
+
+      resolveWithImage();
+    };
+    image.onerror = rejectWithError;
     image.src = src;
+
+    if (image.complete && image.naturalWidth > 0) {
+      image.onload();
+    }
   });
+
+  const trackedPromise = preloadPromise.catch((error) => {
+    imagePreloadCache.delete(src);
+    throw error;
+  });
+
+  imagePreloadCache.set(src, trackedPromise);
+
+  return trackedPromise;
+}
+
+function scheduleIdleTask(task, timeout = IMAGE_WARMUP_IDLE_TIMEOUT_MS) {
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(
+      () => {
+        task();
+      },
+      { timeout }
+    );
+    return;
+  }
+
+  window.setTimeout(task, 0);
+}
+
+function collectManifestSources() {
+  if (!manifest || !manifest.categories) {
+    return [];
+  }
+
+  const uniqueSources = new Set();
+
+  LAYER_ORDER.forEach((layerName) => {
+    const files = manifest.categories[layerName];
+
+    if (!Array.isArray(files)) {
+      return;
+    }
+
+    files.forEach((source) => {
+      if (typeof source === "string" && source.length > 0) {
+        uniqueSources.add(source);
+      }
+    });
+  });
+
+  return Array.from(uniqueSources);
+}
+
+function warmImageCacheInBackground() {
+  if (imageWarmupStarted) {
+    return;
+  }
+
+  imageWarmupStarted = true;
+  const sources = collectManifestSources();
+
+  if (sources.length === 0) {
+    return;
+  }
+
+  let cursor = 0;
+
+  function preloadNextSource() {
+    if (cursor >= sources.length) {
+      return;
+    }
+
+    const source = sources[cursor];
+    cursor += 1;
+
+    preload(source)
+      .catch(() => null)
+      .finally(() => {
+        scheduleIdleTask(preloadNextSource);
+      });
+  }
+
+  const starterCount = Math.min(IMAGE_WARMUP_CONCURRENCY, sources.length);
+
+  for (let index = 0; index < starterCount; index += 1) {
+    scheduleIdleTask(preloadNextSource);
+  }
 }
 
 function setActionButtonsDisabled(disabled) {
@@ -237,8 +384,14 @@ function setCategoryDiceFace(button, face) {
     return;
   }
 
-  button.dataset.diceFace = String(face);
-  button.innerHTML = buildDiceIcon(face);
+  const normalizedFace = String(face);
+
+  if (button.dataset.diceFace === normalizedFace) {
+    return;
+  }
+
+  button.dataset.diceFace = normalizedFace;
+  button.innerHTML = DICE_ICONS_BY_FACE[face] || DICE_ICON;
 }
 
 function resetCategoryDiceFaces(face = 2) {
@@ -259,6 +412,30 @@ function shuffleCategoryDiceFaces() {
 
     const nextFace = randomItem(DICE_FACE_VALUES);
     setCategoryDiceFace(view.categoryRandomizeBtn, nextFace);
+  });
+}
+
+function shuffleCategoryCurrentLayerNames() {
+  LAYER_ORDER.forEach((layerName) => {
+    const state = getLayerState(layerName);
+    const view = layerView.get(layerName);
+
+    if (!state || !view || !view.current) {
+      return;
+    }
+
+    const available = getAvailableSources(state);
+
+    if (available.length === 0) {
+      return;
+    }
+
+    const nextSource = randomItem(available);
+    const nextLabel = decodeFileName(nextSource);
+
+    if (view.current.textContent !== nextLabel) {
+      view.current.textContent = nextLabel;
+    }
   });
 }
 
@@ -292,10 +469,51 @@ function stopDiceShuffle(requestId = null) {
   }
 }
 
+function startLayerNameShuffle(requestId) {
+  if (!areEffectsEnabled()) {
+    stopLayerNameShuffle();
+    return;
+  }
+
+  layerNameShuffleOwnerRequestId = requestId;
+
+  if (layerNameShuffleIntervalId !== null) {
+    window.clearInterval(layerNameShuffleIntervalId);
+  }
+
+  shuffleCategoryCurrentLayerNames();
+  layerNameShuffleIntervalId = window.setInterval(
+    shuffleCategoryCurrentLayerNames,
+    DICE_SHUFFLE_INTERVAL_MS
+  );
+}
+
+function stopLayerNameShuffle(requestId = null) {
+  if (requestId !== null && layerNameShuffleOwnerRequestId !== requestId) {
+    return;
+  }
+
+  const hadActiveShuffle =
+    layerNameShuffleOwnerRequestId !== null || layerNameShuffleIntervalId !== null;
+
+  layerNameShuffleOwnerRequestId = null;
+
+  if (layerNameShuffleIntervalId !== null) {
+    window.clearInterval(layerNameShuffleIntervalId);
+    layerNameShuffleIntervalId = null;
+  }
+
+  if (hadActiveShuffle) {
+    updateAllCategoryViews();
+  }
+}
+
 function applyEffectsPreference() {
   if (!areEffectsEnabled()) {
     stopDiceShuffle();
     resetCategoryDiceFaces(2);
+    stopLayerNameShuffle();
+    stopFavoriteSparkle();
   }
 
   if (typeof refreshParticleFieldEffects === "function") {
@@ -412,6 +630,7 @@ function setSidebarView(mode) {
   }
 
   if (sidebarMintBtn) {
+    sidebarMintBtn.innerHTML = showMint ? BACK_ICON : SIDEBAR_MINT_HOME_ICON;
     sidebarMintBtn.setAttribute("aria-label", showMint ? "Back to layers" : "Open mint menu");
     sidebarMintBtn.title = showMint ? "Back to layers" : "Open mint menu";
     sidebarMintBtn.classList.toggle("is-active", showMint);
@@ -972,6 +1191,43 @@ function updateFavoriteButtonState() {
   favoriteBtn.title = isFavorited ? "Remove current favorite" : "Save current favorite";
 }
 
+function stopFavoriteSparkle() {
+  if (!favoriteBtn) {
+    return;
+  }
+
+  favoriteBtn.classList.remove("is-sparkling");
+
+  if (favoriteSparkleTimeoutId) {
+    window.clearTimeout(favoriteSparkleTimeoutId);
+    favoriteSparkleTimeoutId = null;
+  }
+}
+
+function triggerFavoriteSparkle() {
+  if (!favoriteBtn) {
+    return;
+  }
+
+  if (!areEffectsEnabled()) {
+    stopFavoriteSparkle();
+    return;
+  }
+
+  favoriteBtn.classList.remove("is-sparkling");
+  void favoriteBtn.offsetWidth;
+  favoriteBtn.classList.add("is-sparkling");
+
+  if (favoriteSparkleTimeoutId) {
+    window.clearTimeout(favoriteSparkleTimeoutId);
+  }
+
+  favoriteSparkleTimeoutId = window.setTimeout(() => {
+    favoriteBtn.classList.remove("is-sparkling");
+    favoriteSparkleTimeoutId = null;
+  }, 1080);
+}
+
 async function loadFavoriteById(id) {
   const favorite = favorites.find((item) => item.id === id);
 
@@ -1025,6 +1281,7 @@ function saveCurrentFavorite() {
   persistFavorites();
   renderFavoritesGallery();
   updateFavoriteButtonState();
+  triggerFavoriteSparkle();
   setStatus("Saved to favorites");
 }
 
@@ -1673,6 +1930,7 @@ async function renderSelectedLayers(
   if (picks.length === 0) {
     setStatus("No layers selected");
     stopDiceShuffle();
+    stopLayerNameShuffle();
     updateFavoriteButtonState();
     if (showRandomizeLoading && randomizeLoadingOwnerRequestId === requestId) {
       randomizeLoadingOwnerRequestId = null;
@@ -1687,6 +1945,7 @@ async function renderSelectedLayers(
   }
 
   startDiceShuffle(requestId);
+  startLayerNameShuffle(requestId);
 
   try {
     const loadedImages = await Promise.all(
@@ -1717,6 +1976,14 @@ async function renderSelectedLayers(
       compositePreviewImage.style.display = "block";
     }
 
+    if (!hasRenderedCompositeOnce) {
+      hasRenderedCompositeOnce = true;
+
+      if (initialLoadMessageEl) {
+        initialLoadMessageEl.classList.add("is-hidden");
+      }
+    }
+
     setStatus(successMessage || `Rendered ${picks.length} layers`);
   } catch {
     if (requestId === renderRequestId) {
@@ -1724,6 +1991,7 @@ async function renderSelectedLayers(
     }
   } finally {
     stopDiceShuffle(requestId);
+    stopLayerNameShuffle(requestId);
 
     if (showRandomizeLoading && randomizeLoadingOwnerRequestId === requestId) {
       randomizeLoadingOwnerRequestId = null;
@@ -2022,13 +2290,14 @@ function createLayerControls() {
       list.appendChild(empty);
     } else {
       files.forEach((source) => {
+        const displayName = decodeFileName(source);
         const row = document.createElement("div");
         row.className = "layer-item";
 
         const pick = document.createElement("button");
         pick.type = "button";
         pick.className = "layer-pick";
-        pick.textContent = decodeFileName(source);
+        pick.textContent = displayName;
         pick.addEventListener("click", () => {
           pickLayer(layerName, source);
         });
@@ -2038,7 +2307,7 @@ function createLayerControls() {
         disableBtn.className = "item-toggle item-disable";
         disableBtn.textContent = "X";
         disableBtn.title = "Disable this image in random generation";
-        disableBtn.setAttribute("aria-label", `Disable ${decodeFileName(source)}`);
+        disableBtn.setAttribute("aria-label", `Disable ${displayName}`);
         disableBtn.setAttribute("aria-pressed", "false");
         disableBtn.addEventListener("click", () => {
           toggleLayerDisabled(layerName, source);
@@ -2050,7 +2319,7 @@ function createLayerControls() {
         lockBtn.innerHTML =
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 9h-1V7a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zm-7-2a2 2 0 1 1 4 0v2h-4V7z"/></svg>';
         lockBtn.title = "Lock this image for this category";
-        lockBtn.setAttribute("aria-label", `Lock ${decodeFileName(source)}`);
+        lockBtn.setAttribute("aria-label", `Lock ${displayName}`);
         lockBtn.setAttribute("aria-pressed", "false");
         lockBtn.addEventListener("click", () => {
           toggleLayerLock(layerName, source);
@@ -2171,9 +2440,6 @@ async function initialize() {
   createLayerElements();
   loadFavoritesFromStorage();
   loadDisabledLayersFromStorage();
-  loadSettingsTogglesFromStorage();
-  applyEffectsPreference();
-  loadMetadataTemplate();
   renderFavoritesGallery();
   updateFavoriteButtonState();
 
@@ -2190,6 +2456,7 @@ async function initialize() {
 
     setActionButtonsDisabled(false);
     await randomizeLayers({ visibilityMode: "show-all" });
+    warmImageCacheInBackground();
   } catch {
     setStatus("Missing manifest. Run: node scripts/generate-manifest.mjs");
     setActionButtonsDisabled(true);
