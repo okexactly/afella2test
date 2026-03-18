@@ -40,6 +40,8 @@ const STATUS_DIM_DELAY_MS = 2200;
 let statusDimTimeoutId = null;
 let previousStackSnapshot = null;
 let actionButtonsDisabled = true;
+let actionDisableOwnerRequestId = null;
+let randomizeLoadingOwnerRequestId = null;
 
 function createLayerElements() {
   canvas.innerHTML = "";
@@ -601,12 +603,19 @@ function getSelectionPicks() {
 
 async function renderSelectedLayers(
   successMessage,
-  { disableActions = false, blurDuringLoad = false } = {}
+  { disableActions = false, blurDuringLoad = false, showRandomizeLoading = false } = {}
 ) {
   const picks = getSelectionPicks();
   const requestId = ++renderRequestId;
 
-  setRandomizeLoading(true);
+  if (showRandomizeLoading) {
+    randomizeLoadingOwnerRequestId = requestId;
+    setRandomizeLoading(true);
+  } else if (randomizeLoadingOwnerRequestId !== null) {
+    randomizeLoadingOwnerRequestId = null;
+    setRandomizeLoading(false);
+  }
+
   if (blurDuringLoad) {
     canvas.classList.add("is-loading-blur");
   } else {
@@ -614,13 +623,21 @@ async function renderSelectedLayers(
   }
 
   if (disableActions) {
+    actionDisableOwnerRequestId = requestId;
     setActionButtonsDisabled(true);
+  } else if (actionDisableOwnerRequestId !== null) {
+    actionDisableOwnerRequestId = null;
+    setActionButtonsDisabled(false);
   }
 
   if (picks.length === 0) {
     setStatus("No layers selected");
-    setRandomizeLoading(false);
-    if (disableActions) {
+    if (showRandomizeLoading && randomizeLoadingOwnerRequestId === requestId) {
+      randomizeLoadingOwnerRequestId = null;
+      setRandomizeLoading(false);
+    }
+    if (disableActions && actionDisableOwnerRequestId === requestId) {
+      actionDisableOwnerRequestId = null;
       setActionButtonsDisabled(false);
     }
     return;
@@ -661,11 +678,17 @@ async function renderSelectedLayers(
       setStatus("Could not load one or more selected images");
     }
   } finally {
-    if (requestId === renderRequestId) {
+    if (showRandomizeLoading && randomizeLoadingOwnerRequestId === requestId) {
+      randomizeLoadingOwnerRequestId = null;
       setRandomizeLoading(false);
+    }
+
+    if (requestId === renderRequestId) {
       canvas.classList.remove("is-loading-blur");
     }
-    if (requestId === renderRequestId && disableActions) {
+
+    if (disableActions && actionDisableOwnerRequestId === requestId) {
+      actionDisableOwnerRequestId = null;
       setActionButtonsDisabled(false);
     }
   }
@@ -966,7 +989,8 @@ async function randomizeLayers() {
 
   await renderSelectedLayers("Generated new afella <3", {
     disableActions: true,
-    blurDuringLoad: true
+    blurDuringLoad: true,
+    showRandomizeLoading: true
   });
 }
 
