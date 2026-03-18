@@ -5,8 +5,8 @@ const LAYER_ORDER = [
   "back",
   "character",
   "outfit",
-  "accessory",
   "head",
+  "accessory",
   "left",
   "right",
   "top"
@@ -34,6 +34,8 @@ const layerView = new Map();
 
 let manifest = null;
 let renderRequestId = 0;
+const STATUS_DIM_DELAY_MS = 2200;
+let statusDimTimeoutId = null;
 
 function createLayerElements() {
   canvas.innerHTML = "";
@@ -80,6 +82,23 @@ function setActionButtonsDisabled(disabled) {
 function setRandomizeLoading(isLoading) {
   randomizeBtn.classList.toggle("is-loading", isLoading);
   randomizeBtn.setAttribute("aria-busy", String(isLoading));
+}
+
+function setStatus(message) {
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = message;
+  statusEl.classList.remove("is-dimmed");
+
+  if (statusDimTimeoutId) {
+    window.clearTimeout(statusDimTimeoutId);
+  }
+
+  statusDimTimeoutId = window.setTimeout(() => {
+    statusEl.classList.add("is-dimmed");
+  }, STATUS_DIM_DELAY_MS);
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -457,7 +476,7 @@ async function renderSelectedLayers(
   }
 
   if (picks.length === 0) {
-    statusEl.textContent = "No layers selected.";
+    setStatus("No layers selected");
     setRandomizeLoading(false);
     if (disableActions) {
       setActionButtonsDisabled(false);
@@ -488,10 +507,10 @@ async function renderSelectedLayers(
       img.style.display = "block";
     });
 
-    statusEl.textContent = successMessage || `Rendered ${picks.length} layers.`;
+    setStatus(successMessage || `Rendered ${picks.length} layers`);
   } catch {
     if (requestId === renderRequestId) {
-      statusEl.textContent = "Could not load one or more selected images.";
+      setStatus("Could not load one or more selected images");
     }
   } finally {
     if (requestId === renderRequestId) {
@@ -508,7 +527,7 @@ async function downloadCompositeImage() {
   const picks = getSelectionPicks();
 
   if (picks.length === 0) {
-    statusEl.textContent = "Nothing to download yet.";
+    setStatus("Nothing to download yet");
     return;
   }
 
@@ -545,9 +564,9 @@ async function downloadCompositeImage() {
     link.click();
     link.remove();
 
-    statusEl.textContent = "Downloaded PNG.";
+    setStatus("Downloaded PNG");
   } catch {
-    statusEl.textContent = "Could not export the current composite.";
+    setStatus("Could not export the current composite");
   } finally {
     setActionButtonsDisabled(false);
   }
@@ -568,13 +587,19 @@ async function pickLayer(layerName, source) {
     state.disabled.delete(source);
   }
 
+  const changedSelection = state.selected !== source;
+  if (changedSelection && state.locked) {
+    state.locked = null;
+  }
+
   state.selected = source;
   updateCategoryView(layerName);
-  await renderSelectedLayers("Layer selection updated.");
+  await renderSelectedLayers("Layer selection updated");
 }
 
 async function toggleLayerDisabled(layerName, source) {
   const state = getLayerState(layerName);
+  let isDisabledNow = false;
 
   if (!state) {
     return;
@@ -582,8 +607,10 @@ async function toggleLayerDisabled(layerName, source) {
 
   if (state.disabled.has(source)) {
     state.disabled.delete(source);
+    isDisabledNow = false;
   } else {
     state.disabled.add(source);
+    isDisabledNow = true;
 
     if (state.locked === source) {
       state.locked = null;
@@ -595,7 +622,9 @@ async function toggleLayerDisabled(layerName, source) {
   }
 
   updateCategoryView(layerName);
-  await renderSelectedLayers("Layer disabled state updated.");
+  await renderSelectedLayers(
+    isDisabledNow ? "Layer removed from random pool" : "Layer enabled in random pool"
+  );
 }
 
 async function toggleLayerLock(layerName, source) {
@@ -613,7 +642,7 @@ async function toggleLayerLock(layerName, source) {
   }
 
   updateCategoryView(layerName);
-  await renderSelectedLayers(state.locked ? "Layer locked." : "Layer unlocked.");
+  await renderSelectedLayers(state.locked ? "Layer locked" : "Layer unlocked");
 }
 
 async function toggleCategoryVisibility(layerName) {
@@ -626,7 +655,7 @@ async function toggleCategoryVisibility(layerName) {
   state.hidden = !state.hidden;
   updateCategoryView(layerName);
   await renderSelectedLayers(
-    state.hidden ? "Category hidden from view." : "Category shown."
+    state.hidden ? "Category hidden" : "Category shown"
   );
 }
 
@@ -790,11 +819,11 @@ async function randomizeLayers() {
   updateAllCategoryViews();
 
   if (generatedCount === 0) {
-    statusEl.textContent = "No images available in the configured layer folders.";
+    setStatus("No images available in the configured layer folders");
     return;
   }
 
-  await renderSelectedLayers(`Generated ${generatedCount} layers.`, {
+  await renderSelectedLayers("Generated new afella <3", {
     disableActions: true,
     blurDuringLoad: true
   });
@@ -816,8 +845,7 @@ async function initialize() {
     setActionButtonsDisabled(false);
     await randomizeLayers();
   } catch {
-    statusEl.textContent =
-      "Missing manifest. Run: node scripts/generate-manifest.mjs";
+    setStatus("Missing manifest. Run: node scripts/generate-manifest.mjs");
     setActionButtonsDisabled(true);
   }
 }
