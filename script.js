@@ -24,27 +24,46 @@ const FOLDER_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z"/></svg>';
 const BACK_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5 3 12l7 7"/><path d="M3 12h18"/></svg>';
+const GEAR_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><path d="m3 13.4 1.8.4a7.4 7.4 0 0 0 .7 1.7l-1 1.6 2.2 2.2 1.6-1a7.4 7.4 0 0 0 1.7.7l.4 1.8h3.2l.4-1.8a7.4 7.4 0 0 0 1.7-.7l1.6 1 2.2-2.2-1-1.6a7.4 7.4 0 0 0 .7-1.7l1.8-.4v-3.2l-1.8-.4a7.4 7.4 0 0 0-.7-1.7l1-1.6-2.2-2.2-1.6 1a7.4 7.4 0 0 0-1.7-.7L13.4 3h-3.2l-.4 1.8a7.4 7.4 0 0 0-1.7.7l-1.6-1-2.2 2.2 1 1.6a7.4 7.4 0 0 0-.7 1.7L3 10.2Z"/></svg>';
 const FAVORITES_STORAGE_KEY = "afella2:favorites:v1";
 const DISABLED_LAYERS_STORAGE_KEY = "afella2:disabled-layers:v1";
+const SETTINGS_TOGGLES_STORAGE_KEY = "afella2:settings-toggles:v1";
+const METADATA_TEMPLATE_PATH = "0.json";
+const DEFAULT_METADATA_NAME = "afella 2 custom";
+const DEFAULT_METADATA_DESCRIPTION = "transformed magical girl";
 const RANDOM_HIDE_EXCLUDED_CATEGORIES = new Set(["bkg", "outfit"]);
 const DEFAULT_HIDE_CHANCE = 0.15;
 const CHARACTER_HIDE_CHANCE = 0.05;
+const MAX_UNDO_HISTORY = 3;
 
 const sidebar = document.getElementById("sidebar");
 const canvas = document.getElementById("canvas");
 const layersView = document.getElementById("layersView");
 const galleryView = document.getElementById("galleryView");
+const settingsView = document.getElementById("settingsView");
+const mintView = document.getElementById("mintView");
 const galleryGrid = document.getElementById("galleryGrid");
+const favoritesCount = document.getElementById("favoritesCount");
 const layerControls = document.getElementById("layerControls");
 const randomizeBtn = document.getElementById("randomizeBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 const favoriteBtn = document.getElementById("favoriteBtn");
 const statusRefreshBtn = document.getElementById("statusRefreshBtn");
+const sidebarMintBtn = document.getElementById("sidebarMintBtn");
 const sidebarModeBtn = document.getElementById("sidebarModeBtn");
+const sidebarSettingsBtn = document.getElementById("sidebarSettingsBtn");
 const sidebarCloseBtn = document.getElementById("sidebarCloseBtn");
 const sidebarOpenBtn = document.getElementById("sidebarOpenBtn");
 const statusEl = document.getElementById("status");
 const particleField = document.getElementById("particleField");
+const downloadMetadataCheckbox = document.getElementById("downloadMetadataCheckbox");
+const allowRandomizeHideCheckbox = document.getElementById("allowRandomizeHideCheckbox");
+const downloadFavoritesBtn = document.getElementById("downloadFavoritesBtn");
+const clearFavoritesBtn = document.getElementById("clearFavoritesBtn");
+const clearFavoritesConfirmModal = document.getElementById("clearFavoritesConfirmModal");
+const clearFavoritesConfirmYesBtn = document.getElementById("clearFavoritesConfirmYesBtn");
+const clearFavoritesConfirmNoBtn = document.getElementById("clearFavoritesConfirmNoBtn");
 
 const layerElements = new Map();
 const layerState = new Map();
@@ -55,12 +74,21 @@ let manifest = null;
 let renderRequestId = 0;
 const STATUS_DIM_DELAY_MS = 2200;
 let statusDimTimeoutId = null;
-let previousStackSnapshot = null;
+let previousStackSnapshots = [];
 let actionButtonsDisabled = true;
 let actionDisableOwnerRequestId = null;
 let randomizeLoadingOwnerRequestId = null;
 let favorites = [];
 let persistedDisabledLayers = {};
+let sidebarViewMode = "layers";
+let metadataTemplate = null;
+
+function getSettingsToggleEntries() {
+  return [
+    ["downloadMetadataCheckbox", downloadMetadataCheckbox, false],
+    ["allowRandomizeHideCheckbox", allowRandomizeHideCheckbox, true]
+  ];
+}
 
 function createLayerElements() {
   canvas.innerHTML = "";
@@ -136,7 +164,7 @@ function setActionButtonsDisabled(disabled) {
 
 function updateStatusRefreshButtonState() {
   if (statusRefreshBtn) {
-    statusRefreshBtn.disabled = actionButtonsDisabled || !previousStackSnapshot;
+    statusRefreshBtn.disabled = actionButtonsDisabled || previousStackSnapshots.length === 0;
   }
 }
 
@@ -174,21 +202,86 @@ function setSidebarCollapsed(collapsed) {
   sidebarCloseBtn.setAttribute("aria-expanded", String(!collapsed));
 }
 
-function setSidebarGalleryView(showGallery) {
-  if (!sidebar || !layersView || !galleryView || !sidebarModeBtn) {
+function isClearFavoritesConfirmOpen() {
+  return Boolean(clearFavoritesConfirmModal && !clearFavoritesConfirmModal.hidden);
+}
+
+function setClearFavoritesConfirmOpen(open, { restoreFocus = true } = {}) {
+  if (!clearFavoritesConfirmModal) {
     return;
   }
 
-  sidebar.classList.toggle("is-gallery-view", showGallery);
-  layersView.hidden = showGallery;
-  galleryView.hidden = !showGallery;
+  const shouldOpen = Boolean(open);
+  clearFavoritesConfirmModal.hidden = !shouldOpen;
+  clearFavoritesConfirmModal.setAttribute("aria-hidden", String(!shouldOpen));
+  document.body.classList.toggle("confirm-modal-open", shouldOpen);
 
-  sidebarModeBtn.innerHTML = showGallery ? BACK_ICON : FOLDER_ICON;
-  sidebarModeBtn.setAttribute(
-    "aria-label",
-    showGallery ? "Back to layers" : "Open saved gallery"
-  );
-  sidebarModeBtn.title = showGallery ? "Back to layers" : "Open saved gallery";
+  if (shouldOpen) {
+    if (clearFavoritesConfirmNoBtn) {
+      clearFavoritesConfirmNoBtn.focus();
+    }
+  } else if (restoreFocus && clearFavoritesBtn) {
+    clearFavoritesBtn.focus();
+  }
+}
+
+function setSidebarView(mode) {
+  if (!sidebar || !layersView || !galleryView) {
+    return;
+  }
+
+  const hasSettingsView = Boolean(settingsView);
+  const hasMintView = Boolean(mintView);
+  const nextMode =
+    mode === "gallery"
+      ? "gallery"
+      : mode === "settings" && hasSettingsView
+        ? "settings"
+        : mode === "mint" && hasMintView
+          ? "mint"
+        : "layers";
+  sidebarViewMode = nextMode;
+
+  const showGallery = nextMode === "gallery";
+  const showSettings = nextMode === "settings";
+  const showMint = nextMode === "mint";
+
+  sidebar.classList.toggle("is-gallery-view", showGallery);
+  sidebar.classList.toggle("is-settings-view", showSettings);
+  sidebar.classList.toggle("is-mint-view", showMint);
+
+  layersView.hidden = nextMode !== "layers";
+  galleryView.hidden = !showGallery;
+  if (settingsView) {
+    settingsView.hidden = !showSettings;
+  }
+  if (mintView) {
+    mintView.hidden = !showMint;
+  }
+
+  if (sidebarModeBtn) {
+    sidebarModeBtn.innerHTML = showGallery ? BACK_ICON : FOLDER_ICON;
+    sidebarModeBtn.setAttribute(
+      "aria-label",
+      showGallery ? "Back to layers" : "Open saved gallery"
+    );
+    sidebarModeBtn.title = showGallery ? "Back to layers" : "Open saved gallery";
+  }
+
+  if (sidebarSettingsBtn) {
+    sidebarSettingsBtn.innerHTML = showSettings ? BACK_ICON : GEAR_ICON;
+    sidebarSettingsBtn.setAttribute(
+      "aria-label",
+      showSettings ? "Back to layers" : "Open settings"
+    );
+    sidebarSettingsBtn.title = showSettings ? "Back to layers" : "Open settings";
+  }
+
+  if (sidebarMintBtn) {
+    sidebarMintBtn.setAttribute("aria-label", showMint ? "Back to layers" : "Open mint menu");
+    sidebarMintBtn.title = showMint ? "Back to layers" : "Open mint menu";
+    sidebarMintBtn.classList.toggle("is-active", showMint);
+  }
 }
 
 function buildSnapshotSignature(snapshot) {
@@ -337,6 +430,272 @@ function persistDisabledLayers() {
   }
 }
 
+function loadSettingsTogglesFromStorage() {
+  const settingsEntries = getSettingsToggleEntries();
+
+  settingsEntries.forEach(([, toggleEl, defaultValue]) => {
+    if (toggleEl) {
+      toggleEl.checked = defaultValue;
+    }
+  });
+
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_TOGGLES_STORAGE_KEY);
+
+    if (!raw) {
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return;
+    }
+
+    settingsEntries.forEach(([settingKey, toggleEl]) => {
+      if (!toggleEl) {
+        return;
+      }
+
+      const storedValue = parsed[settingKey];
+
+      if (typeof storedValue === "boolean") {
+        toggleEl.checked = storedValue;
+      }
+    });
+  } catch {
+    // Ignore storage failures silently.
+  }
+}
+
+function persistSettingsToggles() {
+  try {
+    const serialized = {};
+
+    getSettingsToggleEntries().forEach(([settingKey, toggleEl]) => {
+      if (!toggleEl) {
+        return;
+      }
+
+      serialized[settingKey] = Boolean(toggleEl.checked);
+    });
+
+    window.localStorage.setItem(SETTINGS_TOGGLES_STORAGE_KEY, JSON.stringify(serialized));
+  } catch {
+    // Ignore storage failures silently.
+  }
+}
+
+async function loadMetadataTemplate() {
+  try {
+    const response = await fetch(METADATA_TEMPLATE_PATH, { cache: "no-store" });
+
+    if (!response.ok) {
+      throw new Error(`Metadata template request failed: ${response.status}`);
+    }
+
+    const parsed = await response.json();
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Invalid metadata template shape");
+    }
+
+    metadataTemplate = parsed;
+    return true;
+  } catch {
+    metadataTemplate = null;
+    return false;
+  }
+}
+
+async function ensureMetadataTemplateLoaded() {
+  if (metadataTemplate) {
+    return true;
+  }
+
+  return loadMetadataTemplate();
+}
+
+function getMetadataLayerState(layerName, snapshot = null) {
+  const state = getLayerState(layerName);
+  const layerSnapshot =
+    snapshot && snapshot[layerName] && typeof snapshot[layerName] === "object"
+      ? snapshot[layerName]
+      : null;
+
+  const hidden = layerSnapshot ? Boolean(layerSnapshot.hidden) : state ? state.hidden : false;
+  const disabled = layerSnapshot
+    ? new Set(
+        (Array.isArray(layerSnapshot.disabled) ? layerSnapshot.disabled : []).filter(
+          (source) => typeof source === "string"
+        )
+      )
+    : new Set(state ? state.disabled : []);
+
+  let selected = layerSnapshot
+    ? typeof layerSnapshot.selected === "string"
+      ? layerSnapshot.selected
+      : null
+    : state && typeof state.selected === "string"
+      ? state.selected
+      : null;
+
+  if (selected && disabled.has(selected)) {
+    selected = null;
+  }
+
+  return {
+    hidden,
+    selected
+  };
+}
+
+function buildDefaultMetadataAttributes(snapshot = null) {
+  return CONTROL_ORDER.flatMap((layerName) => {
+    const metadataLayerState = getMetadataLayerState(layerName, snapshot);
+
+    if (!metadataLayerState || metadataLayerState.hidden) {
+      return [];
+    }
+
+    return [
+      {
+        trait_type: formatLayerName(layerName),
+        value: metadataLayerState.selected ? decodeFileName(metadataLayerState.selected) : ""
+      }
+    ];
+  });
+}
+
+function buildDefaultMetadataDocument(imageFileName, snapshot = null) {
+  return {
+    name: DEFAULT_METADATA_NAME,
+    description: DEFAULT_METADATA_DESCRIPTION,
+    image: imageFileName,
+    attributes: buildDefaultMetadataAttributes(snapshot),
+    properties: {
+      files: [
+        {
+          uri: imageFileName,
+          type: "image/png"
+        }
+      ],
+      category: "image"
+    }
+  };
+}
+
+function buildMetadataDocument(imageFileName, snapshot = null) {
+  const hasTemplate =
+    Boolean(metadataTemplate) &&
+    typeof metadataTemplate === "object" &&
+    !Array.isArray(metadataTemplate);
+  const metadata = hasTemplate
+    ? JSON.parse(JSON.stringify(metadataTemplate))
+    : buildDefaultMetadataDocument(imageFileName, snapshot);
+  const traitTypeToLayer = new Map(
+    LAYER_ORDER.map((layerName) => [formatLayerName(layerName).toLowerCase(), layerName])
+  );
+
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+
+  metadata.image = imageFileName;
+
+  if (
+    !metadata.properties ||
+    typeof metadata.properties !== "object" ||
+    Array.isArray(metadata.properties)
+  ) {
+    metadata.properties = {};
+  }
+
+  if (Array.isArray(metadata.properties.files) && metadata.properties.files.length > 0) {
+    metadata.properties.files = metadata.properties.files.map((entry, index) => {
+      if (!entry || typeof entry !== "object" || index !== 0) {
+        return entry;
+      }
+
+      return {
+        ...entry,
+        uri: imageFileName
+      };
+    });
+  } else {
+    metadata.properties.files = [
+      {
+        uri: imageFileName,
+        type: "image/png"
+      }
+    ];
+  }
+
+  if (typeof metadata.properties.category !== "string") {
+    metadata.properties.category = "image";
+  }
+
+  if (!Array.isArray(metadata.attributes)) {
+    metadata.attributes = buildDefaultMetadataAttributes(snapshot);
+    return metadata;
+  }
+
+  metadata.attributes = metadata.attributes.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+
+    const traitType =
+      typeof entry.trait_type === "string" ? entry.trait_type.trim().toLowerCase() : "";
+    const layerName = traitTypeToLayer.get(traitType);
+
+    if (!layerName) {
+      return [entry];
+    }
+
+    const metadataLayerState = getMetadataLayerState(layerName, snapshot);
+
+    if (!metadataLayerState || metadataLayerState.hidden) {
+      return [];
+    }
+
+    return [
+      {
+        ...entry,
+        value: metadataLayerState.selected ? decodeFileName(metadataLayerState.selected) : ""
+      }
+    ];
+  });
+
+  return metadata;
+}
+
+function dataUrlToBlob(dataUrl) {
+  const parts = dataUrl.split(",");
+
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const header = parts[0];
+  const body = parts[1];
+  const mimeMatch = header.match(/^data:([^;]+);base64$/);
+
+  if (!mimeMatch) {
+    return null;
+  }
+
+  const mime = mimeMatch[1];
+  const binary = atob(body);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: mime });
+}
+
 function persistFavorites() {
   try {
     const serialized = favorites.map((item) => ({
@@ -417,6 +776,10 @@ async function hydrateFavoritePreview(favorite, previewEl) {
 }
 
 function renderFavoritesGallery() {
+  if (favoritesCount) {
+    favoritesCount.textContent = `total favorites: ${favorites.length}`;
+  }
+
   if (!galleryGrid) {
     return;
   }
@@ -473,7 +836,7 @@ async function loadFavoriteById(id) {
   capturePreviousStackSnapshot();
   applyStackSnapshot(favorite.snapshot);
   updateAllCategoryViews();
-  setSidebarGalleryView(false);
+  setSidebarView("layers");
   await renderSelectedLayers("Loaded favorite", {
     disableActions: true
   });
@@ -519,6 +882,110 @@ function saveCurrentFavorite() {
   setStatus("Saved to favorites");
 }
 
+async function downloadAllFavorites() {
+  if (favorites.length === 0) {
+    setStatus("No favorites to download");
+    return;
+  }
+
+  const JSZipCtor =
+    typeof window !== "undefined" && typeof window.JSZip === "function"
+      ? window.JSZip
+      : null;
+
+  if (!JSZipCtor) {
+    setStatus("Zip support unavailable");
+    return;
+  }
+
+  setActionButtonsDisabled(true);
+
+  if (downloadFavoritesBtn) {
+    downloadFavoritesBtn.disabled = true;
+  }
+
+  try {
+    const shouldDownloadMetadata = Boolean(
+      downloadMetadataCheckbox && downloadMetadataCheckbox.checked
+    );
+    if (shouldDownloadMetadata) {
+      await ensureMetadataTemplateLoaded();
+    }
+    const zip = new JSZipCtor();
+    let downloadedImages = 0;
+    let downloadedMetadata = 0;
+
+    for (let index = 0; index < favorites.length; index += 1) {
+      const favorite = favorites[index];
+      const dataUrl = favorite.preview || (await buildSnapshotPreview(favorite.snapshot));
+      const imageBlob = dataUrl ? dataUrlToBlob(dataUrl) : null;
+
+      if (!imageBlob) {
+        continue;
+      }
+
+      const baseFileName = `afella favorite-${String(index + 1).padStart(3, "0")}`;
+      const imageFileName = `${baseFileName}.png`;
+      zip.file(imageFileName, imageBlob);
+      downloadedImages += 1;
+
+      if (shouldDownloadMetadata) {
+        const metadata = buildMetadataDocument(imageFileName, favorite.snapshot);
+
+        if (metadata) {
+          zip.file(`${baseFileName}.json`, JSON.stringify(metadata, null, 2));
+          downloadedMetadata += 1;
+        }
+      }
+    }
+
+    if (downloadedImages === 0) {
+      setStatus("No downloadable favorites");
+      return;
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const zipUrl = URL.createObjectURL(zipBlob);
+    const link = document.createElement("a");
+    link.href = zipUrl;
+    link.download = `afella favorites-${stamp}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(zipUrl), 0);
+
+    if (shouldDownloadMetadata) {
+      setStatus(
+        `Downloaded ${downloadedImages} favorites with ${downloadedMetadata} metadata files`
+      );
+    } else {
+      setStatus(`Downloaded ${downloadedImages} favorites`);
+    }
+  } catch {
+    setStatus("Could not download favorites");
+  } finally {
+    setActionButtonsDisabled(false);
+
+    if (downloadFavoritesBtn) {
+      downloadFavoritesBtn.disabled = false;
+    }
+  }
+}
+
+function clearAllFavorites() {
+  if (favorites.length === 0) {
+    setStatus("No favorites to clear");
+    return;
+  }
+
+  favorites = [];
+  persistFavorites();
+  renderFavoritesGallery();
+  updateFavoriteButtonState();
+  setStatus("Cleared all favorites");
+}
+
 function hasSelectedLayers() {
   return LAYER_ORDER.some((layerName) => {
     const state = getLayerState(layerName);
@@ -552,7 +1019,20 @@ function capturePreviousStackSnapshot() {
     return;
   }
 
-  previousStackSnapshot = createStackSnapshot();
+  const snapshot = createStackSnapshot();
+  const signature = buildSnapshotSignature(snapshot);
+  const latestSnapshot = previousStackSnapshots[previousStackSnapshots.length - 1];
+
+  if (latestSnapshot && buildSnapshotSignature(latestSnapshot) === signature) {
+    return;
+  }
+
+  previousStackSnapshots.push(snapshot);
+
+  if (previousStackSnapshots.length > MAX_UNDO_HISTORY) {
+    previousStackSnapshots.shift();
+  }
+
   updateStatusRefreshButtonState();
 }
 
@@ -604,12 +1084,11 @@ function applyStackSnapshot(snapshot) {
 }
 
 async function restorePreviousStack() {
-  if (!previousStackSnapshot) {
+  if (previousStackSnapshots.length === 0) {
     return;
   }
 
-  const snapshot = previousStackSnapshot;
-  previousStackSnapshot = null;
+  const snapshot = previousStackSnapshots.pop();
   updateStatusRefreshButtonState();
 
   applyStackSnapshot(snapshot);
@@ -1112,14 +1591,45 @@ async function downloadCompositeImage() {
     const exportCanvas = buildCompositeCanvas(images);
 
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const baseFileName = `afella custom-${stamp}`;
+    const imageFileName = `${baseFileName}.png`;
     const link = document.createElement("a");
     link.href = exportCanvas.toDataURL("image/png");
-    link.download = `afella custom-${stamp}.png`;
+    link.download = imageFileName;
     document.body.appendChild(link);
     link.click();
     link.remove();
 
-    setStatus("Downloaded PNG");
+    let downloadedMetadata = false;
+    const shouldDownloadMetadata = Boolean(
+      downloadMetadataCheckbox && downloadMetadataCheckbox.checked
+    );
+
+    if (shouldDownloadMetadata) {
+      await ensureMetadataTemplateLoaded();
+      const metadata = buildMetadataDocument(imageFileName);
+
+      if (metadata) {
+        const metadataBlob = new Blob([JSON.stringify(metadata, null, 2)], {
+          type: "application/json"
+        });
+        const metadataUrl = URL.createObjectURL(metadataBlob);
+        const metadataLink = document.createElement("a");
+        metadataLink.href = metadataUrl;
+        metadataLink.download = `${baseFileName}.json`;
+        document.body.appendChild(metadataLink);
+        metadataLink.click();
+        metadataLink.remove();
+        window.setTimeout(() => URL.revokeObjectURL(metadataUrl), 0);
+        downloadedMetadata = true;
+      }
+    }
+
+    if (downloadedMetadata) {
+      setStatus("Downloaded PNG and metadata");
+    } else {
+      setStatus("Downloaded PNG");
+    }
   } catch {
     setStatus("Could not export the current composite");
   } finally {
@@ -1276,7 +1786,7 @@ function createLayerControls() {
   layerControls.innerHTML = "";
   layerState.clear();
   layerView.clear();
-  previousStackSnapshot = null;
+  previousStackSnapshots = [];
   updateStatusRefreshButtonState();
 
   CONTROL_ORDER.forEach((layerName) => {
@@ -1431,7 +1941,7 @@ function createLayerControls() {
   persistDisabledLayers();
 }
 
-async function randomizeLayers({ randomizeVisibility = true } = {}) {
+async function randomizeLayers({ visibilityMode = "randomize" } = {}) {
   if (!manifest) {
     return;
   }
@@ -1453,12 +1963,16 @@ async function randomizeLayers({ randomizeVisibility = true } = {}) {
       state.locked = null;
     }
 
-    if (randomizeVisibility) {
+    if (visibilityMode === "randomize") {
       state.hidden = state.locked
         ? false
         : Math.random() < getCategoryHideChance(layerName);
-    } else {
+    } else if (visibilityMode === "show-all") {
       state.hidden = false;
+    } else {
+      if (state.locked) {
+        state.hidden = false;
+      }
     }
 
     if (state.locked) {
@@ -1494,6 +2008,8 @@ async function initialize() {
   createLayerElements();
   loadFavoritesFromStorage();
   loadDisabledLayersFromStorage();
+  loadSettingsTogglesFromStorage();
+  loadMetadataTemplate();
   renderFavoritesGallery();
   updateFavoriteButtonState();
 
@@ -1509,14 +2025,22 @@ async function initialize() {
     renderFavoritesGallery();
 
     setActionButtonsDisabled(false);
-    await randomizeLayers({ randomizeVisibility: false });
+    await randomizeLayers({ visibilityMode: "show-all" });
   } catch {
     setStatus("Missing manifest. Run: node scripts/generate-manifest.mjs");
     setActionButtonsDisabled(true);
   }
 }
 
-randomizeBtn.addEventListener("click", randomizeLayers);
+randomizeBtn.addEventListener("click", () => {
+  const shouldRandomizeVisibility = Boolean(
+    !allowRandomizeHideCheckbox || allowRandomizeHideCheckbox.checked
+  );
+
+  randomizeLayers({
+    visibilityMode: shouldRandomizeVisibility ? "randomize" : "preserve"
+  });
+});
 downloadBtn.addEventListener("click", downloadCompositeImage);
 
 if (statusRefreshBtn) {
@@ -1527,11 +2051,75 @@ if (favoriteBtn) {
   favoriteBtn.addEventListener("click", saveCurrentFavorite);
 }
 
+if (downloadFavoritesBtn) {
+  downloadFavoritesBtn.addEventListener("click", downloadAllFavorites);
+}
+
+if (downloadMetadataCheckbox) {
+  downloadMetadataCheckbox.addEventListener("change", persistSettingsToggles);
+}
+
+if (allowRandomizeHideCheckbox) {
+  allowRandomizeHideCheckbox.addEventListener("change", persistSettingsToggles);
+}
+
+if (clearFavoritesBtn) {
+  clearFavoritesBtn.addEventListener("click", () => {
+    if (favorites.length === 0) {
+      setStatus("No favorites to clear");
+      return;
+    }
+
+    setClearFavoritesConfirmOpen(true);
+  });
+}
+
+if (clearFavoritesConfirmYesBtn) {
+  clearFavoritesConfirmYesBtn.addEventListener("click", () => {
+    setClearFavoritesConfirmOpen(false);
+    clearAllFavorites();
+  });
+}
+
+if (clearFavoritesConfirmNoBtn) {
+  clearFavoritesConfirmNoBtn.addEventListener("click", () => {
+    setClearFavoritesConfirmOpen(false);
+  });
+}
+
+if (clearFavoritesConfirmModal) {
+  clearFavoritesConfirmModal.addEventListener("click", (event) => {
+    if (event.target === clearFavoritesConfirmModal) {
+      setClearFavoritesConfirmOpen(false);
+    }
+  });
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && isClearFavoritesConfirmOpen()) {
+    event.preventDefault();
+    setClearFavoritesConfirmOpen(false);
+  }
+});
+
 if (sidebarModeBtn) {
-  sidebarModeBtn.addEventListener("click", () => {
-    setSidebarGalleryView(
-      sidebar ? !sidebar.classList.contains("is-gallery-view") : false
-    );
+  sidebarModeBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    setSidebarView(sidebarViewMode === "gallery" ? "layers" : "gallery");
+  });
+}
+
+if (sidebarMintBtn) {
+  sidebarMintBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    setSidebarView(sidebarViewMode === "mint" ? "layers" : "mint");
+  });
+}
+
+if (sidebarSettingsBtn) {
+  sidebarSettingsBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    setSidebarView(sidebarViewMode === "settings" ? "layers" : "settings");
   });
 }
 
@@ -1548,7 +2136,7 @@ if (sidebarOpenBtn) {
 }
 
 setSidebarCollapsed(false);
-setSidebarGalleryView(false);
+setSidebarView("layers");
 setRandomizeLoading(false);
 
 initializeParticleField();

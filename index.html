@@ -39,8 +39,28 @@
         <span aria-hidden="true">x</span>
       </button>
       <h1 class="sidebar-title">
-        <img src="anime%20eyes.png" alt="" aria-hidden="true" class="sidebar-title-icon">
+        <button
+          id="sidebarMintBtn"
+          class="sidebar-title-icon-btn"
+          type="button"
+          aria-label="Open mint menu"
+          title="Open mint menu"
+        >
+          <img src="anime%20eyes.png" alt="" aria-hidden="true" class="sidebar-title-icon">
+        </button>
         <span class="sidebar-title-text">afella 2 generator</span>
+        <button
+          id="sidebarSettingsBtn"
+          class="sidebar-title-action"
+          type="button"
+          aria-label="Open settings"
+          title="Open settings"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/>
+            <path d="m3 13.4 1.8.4a7.4 7.4 0 0 0 .7 1.7l-1 1.6 2.2 2.2 1.6-1a7.4 7.4 0 0 0 1.7.7l.4 1.8h3.2l.4-1.8a7.4 7.4 0 0 0 1.7-.7l1.6 1 2.2-2.2-1-1.6a7.4 7.4 0 0 0 .7-1.7l1.8-.4v-3.2l-1.8-.4a7.4 7.4 0 0 0-.7-1.7l1-1.6-2.2-2.2-1.6 1a7.4 7.4 0 0 0-1.7-.7L13.4 3h-3.2l-.4 1.8a7.4 7.4 0 0 0-1.7.7l-1.6-1-2.2 2.2 1 1.6a7.4 7.4 0 0 0-.7 1.7L3 10.2Z"/>
+          </svg>
+        </button>
         <button
           id="sidebarModeBtn"
           class="sidebar-title-action"
@@ -115,7 +135,80 @@
       </div>
 
       <div id="galleryView" class="sidebar-view sidebar-view-gallery" hidden>
+        <p id="favoritesCount" class="gallery-count" aria-live="polite">total favorites: 0</p>
         <div id="galleryGrid" class="gallery-grid" aria-label="Saved generations"></div>
+      </div>
+
+      <div id="settingsView" class="sidebar-view sidebar-view-settings" hidden>
+        <div class="settings-controls">
+          <label class="settings-option">
+            <input id="downloadMetadataCheckbox" class="settings-toggle-input" type="checkbox">
+            <span class="settings-toggle-track" aria-hidden="true">
+              <span class="settings-toggle-thumb"></span>
+            </span>
+            <span class="settings-toggle-text">download metadata</span>
+          </label>
+          <label class="settings-option">
+            <input
+              id="allowRandomizeHideCheckbox"
+              class="settings-toggle-input"
+              type="checkbox"
+              checked
+            >
+            <span class="settings-toggle-track" aria-hidden="true">
+              <span class="settings-toggle-thumb"></span>
+            </span>
+            <span class="settings-toggle-text">allow randomize to hide categories</span>
+          </label>
+          <div class="settings-download-row">
+            <button id="downloadFavoritesBtn" class="settings-download-favorites" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 18h14"/>
+              </svg>
+              <span>download all favorites</span>
+            </button>
+          </div>
+          <button id="clearFavoritesBtn" class="settings-clear-favorites" type="button">
+            clear all favorites
+          </button>
+        </div>
+      </div>
+
+      <div id="mintView" class="sidebar-view sidebar-view-mint" hidden>
+        <div class="mint-controls">
+          <p class="mint-header-title">peer study 3: afella 2 official</p>
+          <p class="mint-header-subtitle">
+            created by
+            <a
+              href="https://x.com/urmeinong"
+              class="mint-author-link"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              @urmeinong
+            </a>
+          </p>
+          <div class="mint-logos">
+            <a
+              href="https://www.vvv.so/peer-study-3-afella-2"
+              class="mint-logo-item mint-link-item"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img src="vvv.svg" alt="VVV logo" class="mint-logo mint-logo-vvv">
+              <p class="mint-logo-label">mint now!</p>
+            </a>
+            <a
+              href="https://www.tensor.trade/trade/afella_2"
+              class="mint-logo-item mint-link-item"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img src="tensor.png" alt="Tensor logo" class="mint-logo mint-logo-tensor">
+              <p class="mint-logo-label">secondary</p>
+            </a>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -124,6 +217,47 @@
     </div>
   </main>
 
+  <div
+    id="clearFavoritesConfirmModal"
+    class="confirm-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="clearFavoritesConfirmText"
+    aria-hidden="true"
+    hidden
+  >
+    <div class="confirm-modal-panel">
+      <p id="clearFavoritesConfirmText" class="confirm-modal-text">
+        are you sure? this cannot be reversed.
+      </p>
+      <div class="confirm-modal-actions">
+        <button
+          id="clearFavoritesConfirmYesBtn"
+          class="confirm-modal-btn is-confirm"
+          type="button"
+          aria-label="Confirm clearing favorites"
+          title="Confirm"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 12 4.2 4.2L19 6.8"/>
+          </svg>
+        </button>
+        <button
+          id="clearFavoritesConfirmNoBtn"
+          class="confirm-modal-btn is-cancel"
+          type="button"
+          aria-label="Cancel clearing favorites"
+          title="Cancel"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 6 12 12M18 6 6 18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
