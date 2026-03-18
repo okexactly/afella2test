@@ -386,6 +386,10 @@ body.sidebar-collapsed .sidebar-open-btn {
   cursor: pointer;
 }
 
+.mint-link-vvv {
+  transform: translateX(8px);
+}
+
 .mint-link-item:hover .mint-logo {
   filter: drop-shadow(0 0 8px rgba(145, 255, 208, 0.32));
 }
@@ -1172,6 +1176,11 @@ body.confirm-modal-open {
   cursor: not-allowed;
 }
 
+body.is-randomizing .randomize-btn:disabled,
+body.is-rendering-layers .randomize-btn:disabled {
+  opacity: 1;
+}
+
 .download-btn {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1288,6 +1297,11 @@ body.confirm-modal-open {
   cursor: not-allowed;
 }
 
+body.is-randomizing .status-refresh-btn:disabled,
+body.is-rendering-layers .status-refresh-btn:disabled {
+  opacity: 1;
+}
+
 .status-row .download-btn {
   border: 0;
   background: transparent;
@@ -1320,6 +1334,11 @@ body.confirm-modal-open {
 
 .status-row .download-btn:disabled {
   opacity: 0.3;
+}
+
+body.is-randomizing .status-row .download-btn:disabled,
+body.is-rendering-layers .status-row .download-btn:disabled {
+  opacity: 0.62;
 }
 
 .status-row .favorite-btn {

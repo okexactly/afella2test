@@ -16,8 +16,44 @@ const EYE_OPEN_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3.2"/></svg>';
 const EYE_CLOSED_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.9 10.9 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3.4 4.2"/><path d="M6.2 6.3A18 18 0 0 0 2 12s3.5 7 10 7c1.4 0 2.6-.3 3.8-.7"/></svg>';
-const DICE_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/></svg>';
+const DICE_FACE_VALUES = [1, 2, 3, 4, 5, 6];
+const DICE_FACE_PIPS = {
+  1: [
+    [12, 12]
+  ],
+  2: [
+    [9, 9],
+    [15, 15]
+  ],
+  3: [
+    [9, 9],
+    [12, 12],
+    [15, 15]
+  ],
+  4: [
+    [9, 9],
+    [15, 9],
+    [9, 15],
+    [15, 15]
+  ],
+  5: [
+    [9, 9],
+    [15, 9],
+    [12, 12],
+    [9, 15],
+    [15, 15]
+  ],
+  6: [
+    [9, 8],
+    [15, 8],
+    [9, 12],
+    [15, 12],
+    [9, 16],
+    [15, 16]
+  ]
+};
+const DICE_SHUFFLE_INTERVAL_MS = 95;
+const DICE_ICON = buildDiceIcon(2);
 const LOCK_INLINE_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10h-1V7a4 4 0 0 0-8 0v3H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-7-3a2 2 0 0 1 4 0v3h-4V7z"/></svg>';
 const FOLDER_ICON =
@@ -59,6 +95,7 @@ const statusEl = document.getElementById("status");
 const particleField = document.getElementById("particleField");
 const downloadMetadataCheckbox = document.getElementById("downloadMetadataCheckbox");
 const allowRandomizeHideCheckbox = document.getElementById("allowRandomizeHideCheckbox");
+const enableEffectsCheckbox = document.getElementById("enableEffectsCheckbox");
 const downloadFavoritesBtn = document.getElementById("downloadFavoritesBtn");
 const clearFavoritesBtn = document.getElementById("clearFavoritesBtn");
 const clearFavoritesConfirmModal = document.getElementById("clearFavoritesConfirmModal");
@@ -78,6 +115,10 @@ let previousStackSnapshots = [];
 let actionButtonsDisabled = true;
 let actionDisableOwnerRequestId = null;
 let randomizeLoadingOwnerRequestId = null;
+let diceShuffleOwnerRequestId = null;
+let diceShuffleIntervalId = null;
+let refreshParticleFieldEffects = null;
+let refreshCanvasTiltEffects = null;
 let favorites = [];
 let persistedDisabledLayers = {};
 let sidebarViewMode = "layers";
@@ -86,7 +127,8 @@ let metadataTemplate = null;
 function getSettingsToggleEntries() {
   return [
     ["downloadMetadataCheckbox", downloadMetadataCheckbox, false],
-    ["allowRandomizeHideCheckbox", allowRandomizeHideCheckbox, true]
+    ["allowRandomizeHideCheckbox", allowRandomizeHideCheckbox, true],
+    ["enableEffectsCheckbox", enableEffectsCheckbox, true]
   ];
 }
 
@@ -121,8 +163,24 @@ function decodeFileName(filePath) {
   return withoutExtension.replace(/_/g, "'");
 }
 
+function buildDiceIcon(face = 2) {
+  const pips = DICE_FACE_PIPS[face] || DICE_FACE_PIPS[2];
+  const pipMarkup = pips
+    .map(
+      ([cx, cy]) =>
+        `<circle cx="${cx}" cy="${cy}" r="1.2" fill="currentColor" stroke="none"/>`
+    )
+    .join("");
+
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>${pipMarkup}</svg>`;
+}
+
 function randomItem(items) {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function areEffectsEnabled() {
+  return !enableEffectsCheckbox || enableEffectsCheckbox.checked;
 }
 
 function isRandomHideExcludedCategory(layerName) {
@@ -171,6 +229,82 @@ function updateStatusRefreshButtonState() {
 function setRandomizeLoading(isLoading) {
   randomizeBtn.classList.toggle("is-loading", isLoading);
   randomizeBtn.setAttribute("aria-busy", String(isLoading));
+  document.body.classList.toggle("is-randomizing", isLoading);
+}
+
+function setCategoryDiceFace(button, face) {
+  if (!button) {
+    return;
+  }
+
+  button.dataset.diceFace = String(face);
+  button.innerHTML = buildDiceIcon(face);
+}
+
+function resetCategoryDiceFaces(face = 2) {
+  layerView.forEach((view) => {
+    if (!view || !view.categoryRandomizeBtn) {
+      return;
+    }
+
+    setCategoryDiceFace(view.categoryRandomizeBtn, face);
+  });
+}
+
+function shuffleCategoryDiceFaces() {
+  layerView.forEach((view) => {
+    if (!view || !view.categoryRandomizeBtn) {
+      return;
+    }
+
+    const nextFace = randomItem(DICE_FACE_VALUES);
+    setCategoryDiceFace(view.categoryRandomizeBtn, nextFace);
+  });
+}
+
+function startDiceShuffle(requestId) {
+  if (!areEffectsEnabled()) {
+    stopDiceShuffle();
+    resetCategoryDiceFaces(2);
+    return;
+  }
+
+  diceShuffleOwnerRequestId = requestId;
+
+  if (diceShuffleIntervalId !== null) {
+    window.clearInterval(diceShuffleIntervalId);
+  }
+
+  shuffleCategoryDiceFaces();
+  diceShuffleIntervalId = window.setInterval(shuffleCategoryDiceFaces, DICE_SHUFFLE_INTERVAL_MS);
+}
+
+function stopDiceShuffle(requestId = null) {
+  if (requestId !== null && diceShuffleOwnerRequestId !== requestId) {
+    return;
+  }
+
+  diceShuffleOwnerRequestId = null;
+
+  if (diceShuffleIntervalId !== null) {
+    window.clearInterval(diceShuffleIntervalId);
+    diceShuffleIntervalId = null;
+  }
+}
+
+function applyEffectsPreference() {
+  if (!areEffectsEnabled()) {
+    stopDiceShuffle();
+    resetCategoryDiceFaces(2);
+  }
+
+  if (typeof refreshParticleFieldEffects === "function") {
+    refreshParticleFieldEffects();
+  }
+
+  if (typeof refreshCanvasTiltEffects === "function") {
+    refreshCanvasTiltEffects();
+  }
 }
 
 function setStatus(message) {
@@ -432,6 +566,7 @@ function persistDisabledLayers() {
 
 function loadSettingsTogglesFromStorage() {
   const settingsEntries = getSettingsToggleEntries();
+  let shouldPersistSettings = false;
 
   settingsEntries.forEach(([, toggleEl, defaultValue]) => {
     if (toggleEl) {
@@ -443,18 +578,24 @@ function loadSettingsTogglesFromStorage() {
     const raw = window.localStorage.getItem(SETTINGS_TOGGLES_STORAGE_KEY);
 
     if (!raw) {
+      shouldPersistSettings = true;
       return;
     }
 
     const parsed = JSON.parse(raw);
 
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      shouldPersistSettings = true;
       return;
     }
 
     settingsEntries.forEach(([settingKey, toggleEl]) => {
       if (!toggleEl) {
         return;
+      }
+
+      if (!(settingKey in parsed)) {
+        shouldPersistSettings = true;
       }
 
       const storedValue = parsed[settingKey];
@@ -464,7 +605,12 @@ function loadSettingsTogglesFromStorage() {
       }
     });
   } catch {
+    shouldPersistSettings = true;
     // Ignore storage failures silently.
+  }
+
+  if (shouldPersistSettings) {
+    persistSettingsToggles();
   }
 }
 
@@ -1160,7 +1306,7 @@ function initializeCanvasTilt() {
   let animationFrameId = 0;
 
   function canTilt() {
-    return !reducedMotion.matches && finePointer.matches;
+    return areEffectsEnabled() && !reducedMotion.matches && finePointer.matches;
   }
 
   function renderTilt() {
@@ -1254,6 +1400,12 @@ function initializeCanvasTilt() {
   } else if (typeof finePointer.addListener === "function") {
     finePointer.addListener(handlePreferenceChange);
   }
+
+  refreshCanvasTiltEffects = () => {
+    handlePreferenceChange();
+  };
+
+  handlePreferenceChange();
 }
 
 function initializeParticleField() {
@@ -1366,6 +1518,11 @@ function initializeParticleField() {
   function startParticleField() {
     window.cancelAnimationFrame(animationFrameId);
 
+    if (!areEffectsEnabled()) {
+      context.clearRect(0, 0, width, height);
+      return;
+    }
+
     if (reducedMotion.matches) {
       drawFrame(false);
       return;
@@ -1387,6 +1544,10 @@ function initializeParticleField() {
   } else if (typeof reducedMotion.addListener === "function") {
     reducedMotion.addListener(startParticleField);
   }
+
+  refreshParticleFieldEffects = () => {
+    startParticleField();
+  };
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
@@ -1502,13 +1663,16 @@ async function renderSelectedLayers(
   if (disableActions) {
     actionDisableOwnerRequestId = requestId;
     setActionButtonsDisabled(true);
+    document.body.classList.add("is-rendering-layers");
   } else if (actionDisableOwnerRequestId !== null) {
     actionDisableOwnerRequestId = null;
     setActionButtonsDisabled(false);
+    document.body.classList.remove("is-rendering-layers");
   }
 
   if (picks.length === 0) {
     setStatus("No layers selected");
+    stopDiceShuffle();
     updateFavoriteButtonState();
     if (showRandomizeLoading && randomizeLoadingOwnerRequestId === requestId) {
       randomizeLoadingOwnerRequestId = null;
@@ -1517,9 +1681,12 @@ async function renderSelectedLayers(
     if (disableActions && actionDisableOwnerRequestId === requestId) {
       actionDisableOwnerRequestId = null;
       setActionButtonsDisabled(false);
+      document.body.classList.remove("is-rendering-layers");
     }
     return;
   }
+
+  startDiceShuffle(requestId);
 
   try {
     const loadedImages = await Promise.all(
@@ -1556,6 +1723,8 @@ async function renderSelectedLayers(
       setStatus("Could not load one or more selected images");
     }
   } finally {
+    stopDiceShuffle(requestId);
+
     if (showRandomizeLoading && randomizeLoadingOwnerRequestId === requestId) {
       randomizeLoadingOwnerRequestId = null;
       setRandomizeLoading(false);
@@ -1568,6 +1737,7 @@ async function renderSelectedLayers(
     if (disableActions && actionDisableOwnerRequestId === requestId) {
       actionDisableOwnerRequestId = null;
       setActionButtonsDisabled(false);
+      document.body.classList.remove("is-rendering-layers");
     }
 
     if (requestId === renderRequestId) {
@@ -1673,8 +1843,6 @@ async function toggleLayerDisabled(layerName, source) {
     return;
   }
 
-  capturePreviousStackSnapshot();
-
   if (state.disabled.has(source)) {
     state.disabled.delete(source);
     isDisabledNow = false;
@@ -1705,8 +1873,6 @@ async function toggleLayerLock(layerName, source) {
     return;
   }
 
-  capturePreviousStackSnapshot();
-
   if (state.locked === source) {
     state.locked = null;
   } else {
@@ -1725,7 +1891,6 @@ async function unlockCategoryLock(layerName) {
     return;
   }
 
-  capturePreviousStackSnapshot();
   state.locked = null;
   updateCategoryView(layerName);
   await renderSelectedLayers("Layer unlocked");
@@ -1737,8 +1902,6 @@ async function toggleCategoryVisibility(layerName) {
   if (!state) {
     return;
   }
-
-  capturePreviousStackSnapshot();
 
   state.hidden = !state.hidden;
   updateCategoryView(layerName);
@@ -2009,6 +2172,7 @@ async function initialize() {
   loadFavoritesFromStorage();
   loadDisabledLayersFromStorage();
   loadSettingsTogglesFromStorage();
+  applyEffectsPreference();
   loadMetadataTemplate();
   renderFavoritesGallery();
   updateFavoriteButtonState();
@@ -2061,6 +2225,16 @@ if (downloadMetadataCheckbox) {
 
 if (allowRandomizeHideCheckbox) {
   allowRandomizeHideCheckbox.addEventListener("change", persistSettingsToggles);
+}
+
+if (enableEffectsCheckbox) {
+  const handleEnableEffectsChange = () => {
+    persistSettingsToggles();
+    applyEffectsPreference();
+  };
+
+  enableEffectsCheckbox.addEventListener("input", handleEnableEffectsChange);
+  enableEffectsCheckbox.addEventListener("change", handleEnableEffectsChange);
 }
 
 if (clearFavoritesBtn) {
@@ -2139,6 +2313,8 @@ setSidebarCollapsed(false);
 setSidebarView("layers");
 setRandomizeLoading(false);
 
+loadSettingsTogglesFromStorage();
 initializeParticleField();
 initializeCanvasTilt();
+applyEffectsPreference();
 initialize();
