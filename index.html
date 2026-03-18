@@ -5,19 +5,65 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Character Layer Generator</title>
   <meta name="description" content="Randomly generate a stacked transparent character image from layer folders.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <canvas id="particleField" class="particle-field" aria-hidden="true"></canvas>
+  <button
+    id="sidebarOpenBtn"
+    class="sidebar-open-btn"
+    type="button"
+    aria-label="Open sidebar"
+    title="Open controls"
+  >
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 10v6"/>
+      <path d="M12 7.2h.01"/>
+    </svg>
+  </button>
+
   <main class="app">
+    <aside id="sidebar" class="sidebar">
+      <button
+        id="sidebarCloseBtn"
+        class="sidebar-close-btn"
+        type="button"
+        aria-label="Close sidebar"
+        title="Close controls"
+      >
+        <span aria-hidden="true">x</span>
+      </button>
+      <h1 class="sidebar-title">afella 2 generator</h1>
+      <div id="layerControls" class="layer-controls" aria-label="Layer selectors"></div>
+
+      <div class="actions">
+        <button id="randomizeBtn" class="randomize-btn" type="button" disabled>
+          Randomize Layers
+        </button>
+        <button
+          id="downloadBtn"
+          class="download-btn"
+          type="button"
+          aria-label="Download current composite as PNG"
+          title="Download PNG"
+          disabled
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 18h14"/>
+          </svg>
+        </button>
+      </div>
+
+      <p id="status" class="status">Loading layers...</p>
+    </aside>
+
     <div class="preview-wrap">
       <div id="canvas" class="canvas" aria-live="polite" aria-label="Generated character image"></div>
     </div>
-
-    <button id="randomizeBtn" class="randomize-btn" type="button" disabled>
-      Randomize Layers
-    </button>
-
-    <p id="status" class="status">Loading layers...</p>
   </main>
 
   <script src="script.js"></script>
