@@ -114,9 +114,9 @@ body {
     100dvh - (var(--layout-offset) + var(--sidebar-image-offset) + 1.25rem)
   );
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: rgba(25, 29, 34, 0.92);
-  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.28);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   padding: calc(0.9rem - 1px) 0.9rem;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
@@ -188,7 +188,11 @@ body.sidebar-collapsed .sidebar-open-btn {
   display: grid;
   gap: 0.55rem;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding-right: 0.2rem;
 }
 
@@ -316,8 +320,8 @@ body.sidebar-collapsed .sidebar-open-btn {
 }
 
 .layer-list {
-  max-height: 220px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   border-top: 1px solid var(--border);
 }
 
@@ -451,6 +455,12 @@ body.sidebar-collapsed .sidebar-open-btn {
   image-rendering: auto;
   pointer-events: none;
   transition: filter 180ms ease, opacity 180ms ease;
+}
+
+.canvas .composite-save-image {
+  z-index: 2;
+  pointer-events: auto;
+  -webkit-touch-callout: default;
 }
 
 .canvas.is-loading-blur img {
@@ -631,6 +641,47 @@ body.sidebar-collapsed .sidebar-open-btn {
   transform: translateY(-1px);
   filter: brightness(1.08);
   border-color: rgba(101, 162, 255, 0.65);
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+}
+
+.status-refresh-btn {
+  width: 0.96rem;
+  height: 0.96rem;
+  border: 1px solid rgba(132, 149, 170, 0.58);
+  border-radius: 4px;
+  background: rgba(15, 19, 24, 0.92);
+  color: #b9c8da;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.status-refresh-btn svg {
+  width: 0.72rem;
+  height: 0.72rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.status-refresh-btn:hover:enabled {
+  border-color: rgba(157, 255, 224, 0.8);
+  color: #d6f3ee;
+}
+
+.status-refresh-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .status {

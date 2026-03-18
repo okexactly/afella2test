@@ -70,7 +70,22 @@
         </button>
       </div>
 
-      <p id="status" class="status">Loading layers...</p>
+      <div class="status-row">
+        <button
+          id="statusRefreshBtn"
+          class="status-refresh-btn"
+          type="button"
+          aria-label="Restore previous stack"
+          title="Restore previous stack"
+          disabled
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 4v5h5"/>
+            <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/>
+          </svg>
+        </button>
+        <p id="status" class="status">Loading layers...</p>
+      </div>
     </aside>
 
     <div class="preview-wrap">

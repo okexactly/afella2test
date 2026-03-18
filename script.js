@@ -23,6 +23,7 @@ const canvas = document.getElementById("canvas");
 const layerControls = document.getElementById("layerControls");
 const randomizeBtn = document.getElementById("randomizeBtn");
 const downloadBtn = document.getElementById("downloadBtn");
+const statusRefreshBtn = document.getElementById("statusRefreshBtn");
 const sidebarCloseBtn = document.getElementById("sidebarCloseBtn");
 const sidebarOpenBtn = document.getElementById("sidebarOpenBtn");
 const statusEl = document.getElementById("status");
@@ -31,11 +32,14 @@ const particleField = document.getElementById("particleField");
 const layerElements = new Map();
 const layerState = new Map();
 const layerView = new Map();
+let compositePreviewImage = null;
 
 let manifest = null;
 let renderRequestId = 0;
 const STATUS_DIM_DELAY_MS = 2200;
 let statusDimTimeoutId = null;
+let previousStackSnapshot = null;
+let actionButtonsDisabled = true;
 
 function createLayerElements() {
   canvas.innerHTML = "";
@@ -48,6 +52,13 @@ function createLayerElements() {
     canvas.appendChild(img);
     layerElements.set(layerName, img);
   });
+
+  const preview = document.createElement("img");
+  preview.className = "composite-save-image";
+  preview.alt = "Current composite image";
+  preview.style.display = "none";
+  canvas.appendChild(preview);
+  compositePreviewImage = preview;
 }
 
 function formatLayerName(layerName) {
@@ -75,8 +86,16 @@ function preload(src) {
 }
 
 function setActionButtonsDisabled(disabled) {
+  actionButtonsDisabled = disabled;
   randomizeBtn.disabled = disabled;
   downloadBtn.disabled = disabled;
+  updateStatusRefreshButtonState();
+}
+
+function updateStatusRefreshButtonState() {
+  if (statusRefreshBtn) {
+    statusRefreshBtn.disabled = actionButtonsDisabled || !previousStackSnapshot;
+  }
 }
 
 function setRandomizeLoading(isLoading) {
@@ -113,6 +132,104 @@ function setSidebarCollapsed(collapsed) {
   sidebarCloseBtn.setAttribute("aria-expanded", String(!collapsed));
 }
 
+function hasSelectedLayers() {
+  return LAYER_ORDER.some((layerName) => {
+    const state = getLayerState(layerName);
+    return Boolean(state && state.selected);
+  });
+}
+
+function createStackSnapshot() {
+  const snapshot = {};
+
+  LAYER_ORDER.forEach((layerName) => {
+    const state = getLayerState(layerName);
+
+    if (!state) {
+      return;
+    }
+
+    snapshot[layerName] = {
+      selected: state.selected,
+      locked: state.locked,
+      hidden: state.hidden,
+      disabled: Array.from(state.disabled)
+    };
+  });
+
+  return snapshot;
+}
+
+function capturePreviousStackSnapshot() {
+  if (!hasSelectedLayers()) {
+    return;
+  }
+
+  previousStackSnapshot = createStackSnapshot();
+  updateStatusRefreshButtonState();
+}
+
+function applyStackSnapshot(snapshot) {
+  LAYER_ORDER.forEach((layerName) => {
+    const state = getLayerState(layerName);
+    const layerSnapshot = snapshot[layerName];
+
+    if (!state || !layerSnapshot) {
+      return;
+    }
+
+    const disabled = new Set(
+      (layerSnapshot.disabled || []).filter((source) => state.files.includes(source))
+    );
+    const locked =
+      typeof layerSnapshot.locked === "string" &&
+      state.files.includes(layerSnapshot.locked) &&
+      !disabled.has(layerSnapshot.locked)
+        ? layerSnapshot.locked
+        : null;
+
+    let selected =
+      typeof layerSnapshot.selected === "string" &&
+      state.files.includes(layerSnapshot.selected)
+        ? layerSnapshot.selected
+        : null;
+
+    state.hidden = Boolean(layerSnapshot.hidden);
+    state.disabled = disabled;
+    state.locked = locked;
+
+    if (selected && state.disabled.has(selected)) {
+      selected = null;
+    }
+
+    if (!selected && state.locked) {
+      selected = state.locked;
+    }
+
+    if (!selected) {
+      selected = firstAvailableSource(state);
+    }
+
+    state.selected = selected;
+  });
+}
+
+async function restorePreviousStack() {
+  if (!previousStackSnapshot) {
+    return;
+  }
+
+  const snapshot = previousStackSnapshot;
+  previousStackSnapshot = null;
+  updateStatusRefreshButtonState();
+
+  applyStackSnapshot(snapshot);
+  updateAllCategoryViews();
+  await renderSelectedLayers("Restored previous stack", {
+    disableActions: true
+  });
+}
+
 function updateCanvasAspectRatio(images) {
   const widths = images
     .map((image) => image.naturalWidth || 0)
@@ -128,6 +245,31 @@ function updateCanvasAspectRatio(images) {
   const width = Math.max(...widths);
   const height = Math.max(...heights);
   canvas.style.setProperty("--canvas-ratio", `${width} / ${height}`);
+}
+
+function buildCompositeCanvas(images) {
+  const width = Math.max(...images.map((image) => image.naturalWidth || 0));
+  const height = Math.max(...images.map((image) => image.naturalHeight || 0));
+
+  if (!width || !height) {
+    throw new Error("Invalid image dimensions");
+  }
+
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = width;
+  exportCanvas.height = height;
+
+  const context = exportCanvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Missing canvas context");
+  }
+
+  images.forEach((image) => {
+    context.drawImage(image, 0, 0);
+  });
+
+  return exportCanvas;
 }
 
 function initializeCanvasTilt() {
@@ -507,6 +649,12 @@ async function renderSelectedLayers(
       img.style.display = "block";
     });
 
+    if (compositePreviewImage) {
+      const compositeCanvas = buildCompositeCanvas(loadedImages);
+      compositePreviewImage.src = compositeCanvas.toDataURL("image/png");
+      compositePreviewImage.style.display = "block";
+    }
+
     setStatus(successMessage || `Rendered ${picks.length} layers`);
   } catch {
     if (requestId === renderRequestId) {
@@ -535,26 +683,7 @@ async function downloadCompositeImage() {
 
   try {
     const images = await Promise.all(picks.map((pick) => preload(pick.source)));
-    const width = Math.max(...images.map((image) => image.naturalWidth || 0));
-    const height = Math.max(...images.map((image) => image.naturalHeight || 0));
-
-    if (!width || !height) {
-      throw new Error("Invalid image dimensions");
-    }
-
-    const exportCanvas = document.createElement("canvas");
-    exportCanvas.width = width;
-    exportCanvas.height = height;
-
-    const context = exportCanvas.getContext("2d");
-
-    if (!context) {
-      throw new Error("Missing canvas context");
-    }
-
-    images.forEach((image) => {
-      context.drawImage(image, 0, 0);
-    });
+    const exportCanvas = buildCompositeCanvas(images);
 
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const link = document.createElement("a");
@@ -583,6 +712,8 @@ async function pickLayer(layerName, source) {
     return;
   }
 
+  capturePreviousStackSnapshot();
+
   if (state.disabled.has(source)) {
     state.disabled.delete(source);
   }
@@ -604,6 +735,8 @@ async function toggleLayerDisabled(layerName, source) {
   if (!state) {
     return;
   }
+
+  capturePreviousStackSnapshot();
 
   if (state.disabled.has(source)) {
     state.disabled.delete(source);
@@ -634,6 +767,8 @@ async function toggleLayerLock(layerName, source) {
     return;
   }
 
+  capturePreviousStackSnapshot();
+
   if (state.locked === source) {
     state.locked = null;
   } else {
@@ -652,6 +787,8 @@ async function toggleCategoryVisibility(layerName) {
     return;
   }
 
+  capturePreviousStackSnapshot();
+
   state.hidden = !state.hidden;
   updateCategoryView(layerName);
   await renderSelectedLayers(
@@ -663,6 +800,8 @@ function createLayerControls() {
   layerControls.innerHTML = "";
   layerState.clear();
   layerView.clear();
+  previousStackSnapshot = null;
+  updateStatusRefreshButtonState();
 
   CONTROL_ORDER.forEach((layerName) => {
     const files = manifest.categories[layerName] || [];
@@ -786,6 +925,8 @@ async function randomizeLayers() {
     return;
   }
 
+  capturePreviousStackSnapshot();
+
   let generatedCount = 0;
 
   LAYER_ORDER.forEach((layerName) => {
@@ -852,6 +993,10 @@ async function initialize() {
 
 randomizeBtn.addEventListener("click", randomizeLayers);
 downloadBtn.addEventListener("click", downloadCompositeImage);
+
+if (statusRefreshBtn) {
+  statusRefreshBtn.addEventListener("click", restorePreviousStack);
+}
 
 if (sidebarCloseBtn) {
   sidebarCloseBtn.addEventListener("click", () => {
