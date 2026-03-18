@@ -1539,12 +1539,31 @@ body.is-rendering-layers .status-row .download-btn:disabled {
     order: 2;
     position: relative;
     top: 0;
-    max-height: none;
+    height: min(52dvh, 460px);
+    max-height: min(52dvh, 460px);
+    min-height: min(52dvh, 460px);
     margin-top: 0;
   }
 
+  .sidebar-view-layers,
+  .sidebar-view-gallery,
+  .sidebar-view-settings,
+  .sidebar-view-mint {
+    height: 100%;
+    min-height: 0;
+  }
+
   .layer-controls {
-    max-height: 52dvh;
+    max-height: none;
+  }
+
+  .settings-controls,
+  .mint-controls,
+  .gallery-grid {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .canvas {
