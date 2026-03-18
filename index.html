@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Character Layer Generator</title>
+  <meta name="description" content="Randomly generate a stacked transparent character image from layer folders.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <div class="preview-wrap">
+      <div id="canvas" class="canvas" aria-live="polite" aria-label="Generated character image"></div>
+    </div>
+
+    <button id="randomizeBtn" class="randomize-btn" type="button" disabled>
+      Randomize Layers
+    </button>
+
+    <p id="status" class="status">Loading layers...</p>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
