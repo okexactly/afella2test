@@ -560,9 +560,8 @@ body.sidebar-collapsed .sidebar-open-btn {
 }
 
 .actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--action-size);
-  gap: 0.5rem;
+  display: flex;
+  justify-content: center;
 }
 
 .randomize-btn {
@@ -584,7 +583,7 @@ body.sidebar-collapsed .sidebar-open-btn {
     transform 130ms ease,
     box-shadow 180ms ease,
     border-color 180ms ease;
-  width: 100%;
+  width: min(100%, 270px);
   position: relative;
   display: grid;
   place-items: center;
@@ -737,35 +736,33 @@ body.sidebar-collapsed .sidebar-open-btn {
 
 .favorite-btn {
   border: 0;
+  border-radius: 0;
+  width: var(--action-size);
+  height: var(--action-size);
   background: transparent;
-  color: #9aaec4;
-  width: 29px;
-  height: 29px;
+  color: #b3c5da;
   padding: 0;
   display: grid;
   place-items: center;
   cursor: pointer;
-  margin-left: auto;
-  margin-right: 2px;
-  flex: 0 0 auto;
-  opacity: 0.88;
-  transition: color 120ms ease, opacity 120ms ease, transform 120ms ease;
+  transition: transform 120ms ease, color 120ms ease, opacity 120ms ease;
+  opacity: 0.9;
 }
 
 .favorite-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .favorite-btn:hover:enabled {
-  color: #e9f2ff;
-  opacity: 1;
   transform: translateY(-1px);
+  color: #e8f1ff;
+  opacity: 1;
 }
 
 .favorite-btn.is-favorited {
@@ -779,7 +776,7 @@ body.sidebar-collapsed .sidebar-open-btn {
 }
 
 .favorite-btn:disabled {
-  opacity: 0.35;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -822,6 +819,52 @@ body.sidebar-collapsed .sidebar-open-btn {
 .status-refresh-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.status-row .download-btn {
+  border: 0;
+  background: transparent;
+  color: #8b9fb8;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  margin-left: 0;
+  margin-right: 2px;
+  flex: 0 0 auto;
+  opacity: 0.62;
+  transition: color 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.status-row .download-btn svg {
+  width: 21px;
+  height: 21px;
+}
+
+.status-row .download-btn:hover:enabled {
+  transform: translateY(-1px);
+  filter: none;
+  border-color: transparent;
+  color: #d7e5f7;
+  opacity: 0.9;
+}
+
+.status-row .download-btn:disabled {
+  opacity: 0.3;
+}
+
+.status-row .favorite-btn {
+  width: 29px;
+  height: 29px;
+  margin-left: 0;
+  opacity: 0.82;
+}
+
+.status-row .favorite-btn svg {
+  width: 25px;
+  height: 25px;
 }
 
 .status {
