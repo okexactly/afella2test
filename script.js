@@ -102,6 +102,7 @@ const particleField = document.getElementById("particleField");
 const downloadMetadataCheckbox = document.getElementById("downloadMetadataCheckbox");
 const allowRandomizeHideCheckbox = document.getElementById("allowRandomizeHideCheckbox");
 const enableEffectsCheckbox = document.getElementById("enableEffectsCheckbox");
+const enableMagnifierCheckbox = document.getElementById("enableMagnifierCheckbox");
 const downloadFavoritesBtn = document.getElementById("downloadFavoritesBtn");
 const clearFavoritesBtn = document.getElementById("clearFavoritesBtn");
 const clearFavoritesConfirmModal = document.getElementById("clearFavoritesConfirmModal");
@@ -114,6 +115,7 @@ const layerState = new Map();
 const layerView = new Map();
 const imagePreloadCache = new Map();
 let compositePreviewImage = null;
+let cursorMagnifierEl = null;
 let initialLoadMessageEl = null;
 
 let manifest = null;
@@ -130,6 +132,7 @@ let layerNameShuffleOwnerRequestId = null;
 let layerNameShuffleIntervalId = null;
 let refreshParticleFieldEffects = null;
 let refreshCanvasTiltEffects = null;
+let refreshCanvasMagnifierEffects = null;
 let favorites = [];
 let persistedDisabledLayers = {};
 let sidebarViewMode = "layers";
@@ -142,7 +145,8 @@ function getSettingsToggleEntries() {
   return [
     ["downloadMetadataCheckbox", downloadMetadataCheckbox, false],
     ["allowRandomizeHideCheckbox", allowRandomizeHideCheckbox, true],
-    ["enableEffectsCheckbox", enableEffectsCheckbox, true]
+    ["enableEffectsCheckbox", enableEffectsCheckbox, true],
+    ["enableMagnifierCheckbox", enableMagnifierCheckbox, true]
   ];
 }
 
@@ -171,6 +175,34 @@ function createLayerElements() {
   preview.style.display = "none";
   canvas.appendChild(preview);
   compositePreviewImage = preview;
+
+  const magnifier = document.createElement("div");
+  magnifier.className = "cursor-magnifier";
+  magnifier.setAttribute("aria-hidden", "true");
+  canvas.appendChild(magnifier);
+  cursorMagnifierEl = magnifier;
+  syncCursorMagnifierSource();
+}
+
+function syncCursorMagnifierSource() {
+  if (!cursorMagnifierEl) {
+    return;
+  }
+
+  const source =
+    compositePreviewImage &&
+    typeof compositePreviewImage.src === "string" &&
+    compositePreviewImage.src.length > 0
+      ? compositePreviewImage.src
+      : "";
+
+  if (!source) {
+    cursorMagnifierEl.style.backgroundImage = "none";
+    return;
+  }
+
+  const escapedSource = source.replace(/'/g, "\\'");
+  cursorMagnifierEl.style.backgroundImage = `url('${escapedSource}')`;
 }
 
 function formatLayerName(layerName) {
@@ -202,6 +234,10 @@ function randomItem(items) {
 
 function areEffectsEnabled() {
   return !enableEffectsCheckbox || enableEffectsCheckbox.checked;
+}
+
+function isMagnifierEnabled() {
+  return !enableMagnifierCheckbox || enableMagnifierCheckbox.checked;
 }
 
 function isRandomHideExcludedCategory(layerName) {
@@ -394,8 +430,50 @@ function setCategoryDiceFace(button, face) {
   button.innerHTML = DICE_ICONS_BY_FACE[face] || DICE_ICON;
 }
 
-function resetCategoryDiceFaces(face = 2) {
-  layerView.forEach((view) => {
+function normalizeLayerAnimationScope(layerNames = null) {
+  if (layerNames === null || typeof layerNames === "undefined" || layerNames === "all") {
+    return null;
+  }
+
+  const sourceNames = Array.isArray(layerNames) ? layerNames : [layerNames];
+  const validNames = [];
+  const seen = new Set();
+
+  sourceNames.forEach((layerName) => {
+    if (typeof layerName !== "string") {
+      return;
+    }
+
+    if (!LAYER_ORDER.includes(layerName) || seen.has(layerName)) {
+      return;
+    }
+
+    seen.add(layerName);
+    validNames.push(layerName);
+  });
+
+  return validNames;
+}
+
+function forEachScopedLayer(layerNames, callback) {
+  const scope = normalizeLayerAnimationScope(layerNames);
+
+  if (scope === null) {
+    LAYER_ORDER.forEach((layerName) => {
+      callback(layerName);
+    });
+    return;
+  }
+
+  scope.forEach((layerName) => {
+    callback(layerName);
+  });
+}
+
+function resetCategoryDiceFaces(face = 2, layerNames = null) {
+  forEachScopedLayer(layerNames, (layerName) => {
+    const view = layerView.get(layerName);
+
     if (!view || !view.categoryRandomizeBtn) {
       return;
     }
@@ -404,8 +482,10 @@ function resetCategoryDiceFaces(face = 2) {
   });
 }
 
-function shuffleCategoryDiceFaces() {
-  layerView.forEach((view) => {
+function shuffleCategoryDiceFaces(layerNames = null) {
+  forEachScopedLayer(layerNames, (layerName) => {
+    const view = layerView.get(layerName);
+
     if (!view || !view.categoryRandomizeBtn) {
       return;
     }
@@ -415,8 +495,8 @@ function shuffleCategoryDiceFaces() {
   });
 }
 
-function shuffleCategoryCurrentLayerNames() {
-  LAYER_ORDER.forEach((layerName) => {
+function shuffleCategoryCurrentLayerNames(layerNames = null) {
+  forEachScopedLayer(layerNames, (layerName) => {
     const state = getLayerState(layerName);
     const view = layerView.get(layerName);
 
@@ -439,10 +519,17 @@ function shuffleCategoryCurrentLayerNames() {
   });
 }
 
-function startDiceShuffle(requestId) {
+function startDiceShuffle(requestId, layerNames = null) {
   if (!areEffectsEnabled()) {
     stopDiceShuffle();
     resetCategoryDiceFaces(2);
+    return;
+  }
+
+  const scope = normalizeLayerAnimationScope(layerNames);
+
+  if (Array.isArray(scope) && scope.length === 0) {
+    stopDiceShuffle();
     return;
   }
 
@@ -452,8 +539,11 @@ function startDiceShuffle(requestId) {
     window.clearInterval(diceShuffleIntervalId);
   }
 
-  shuffleCategoryDiceFaces();
-  diceShuffleIntervalId = window.setInterval(shuffleCategoryDiceFaces, DICE_SHUFFLE_INTERVAL_MS);
+  shuffleCategoryDiceFaces(scope);
+  diceShuffleIntervalId = window.setInterval(
+    () => shuffleCategoryDiceFaces(scope),
+    DICE_SHUFFLE_INTERVAL_MS
+  );
 }
 
 function stopDiceShuffle(requestId = null) {
@@ -469,8 +559,15 @@ function stopDiceShuffle(requestId = null) {
   }
 }
 
-function startLayerNameShuffle(requestId) {
+function startLayerNameShuffle(requestId, layerNames = null) {
   if (!areEffectsEnabled()) {
+    stopLayerNameShuffle();
+    return;
+  }
+
+  const scope = normalizeLayerAnimationScope(layerNames);
+
+  if (Array.isArray(scope) && scope.length === 0) {
     stopLayerNameShuffle();
     return;
   }
@@ -481,9 +578,9 @@ function startLayerNameShuffle(requestId) {
     window.clearInterval(layerNameShuffleIntervalId);
   }
 
-  shuffleCategoryCurrentLayerNames();
+  shuffleCategoryCurrentLayerNames(scope);
   layerNameShuffleIntervalId = window.setInterval(
-    shuffleCategoryCurrentLayerNames,
+    () => shuffleCategoryCurrentLayerNames(scope),
     DICE_SHUFFLE_INTERVAL_MS
   );
 }
@@ -522,6 +619,10 @@ function applyEffectsPreference() {
 
   if (typeof refreshCanvasTiltEffects === "function") {
     refreshCanvasTiltEffects();
+  }
+
+  if (typeof refreshCanvasMagnifierEffects === "function") {
+    refreshCanvasMagnifierEffects();
   }
 }
 
@@ -1140,7 +1241,7 @@ async function hydrateFavoritePreview(favorite, previewEl) {
   }
 }
 
-function renderFavoritesGallery() {
+function renderFavoritesGallery({ hydratePreviews = true } = {}) {
   if (favoritesCount) {
     favoritesCount.textContent = `total favorites: ${favorites.length}`;
   }
@@ -1160,7 +1261,12 @@ function renderFavoritesGallery() {
 
     const preview = document.createElement("img");
     preview.alt = "Saved favorite preview";
-    hydrateFavoritePreview(favorite, preview);
+
+    if (favorite.preview) {
+      preview.src = favorite.preview;
+    } else if (hydratePreviews) {
+      hydrateFavoritePreview(favorite, preview);
+    }
 
     item.appendChild(preview);
     item.addEventListener("click", () => {
@@ -1665,6 +1771,95 @@ function initializeCanvasTilt() {
   handlePreferenceChange();
 }
 
+function initializeCanvasMagnifier() {
+  if (!canvas) {
+    return;
+  }
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
+  const magnifierSize = 296;
+  const magnifierZoom = 2.15;
+
+  function hasMagnifierSource() {
+    return Boolean(
+      compositePreviewImage &&
+      typeof compositePreviewImage.src === "string" &&
+      compositePreviewImage.src.length > 0
+    );
+  }
+
+  function canMagnify() {
+    return (
+      isMagnifierEnabled() &&
+      !reducedMotion.matches &&
+      finePointer.matches &&
+      Boolean(cursorMagnifierEl) &&
+      hasMagnifierSource()
+    );
+  }
+
+  function hideMagnifier() {
+    canvas.classList.remove("is-magnifier-active");
+  }
+
+  function updateMagnifierFromEvent(event) {
+    if (!canMagnify() || !cursorMagnifierEl) {
+      hideMagnifier();
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    if (rect.width <= 0 || rect.height <= 0) {
+      hideMagnifier();
+      return;
+    }
+
+    const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+
+    const backgroundWidth = rect.width * magnifierZoom;
+    const backgroundHeight = rect.height * magnifierZoom;
+    const backgroundX = magnifierSize / 2 - x * magnifierZoom;
+    const backgroundY = magnifierSize / 2 - y * magnifierZoom;
+
+    cursorMagnifierEl.style.left = `${x}px`;
+    cursorMagnifierEl.style.top = `${y}px`;
+    cursorMagnifierEl.style.backgroundSize = `${backgroundWidth}px ${backgroundHeight}px`;
+    cursorMagnifierEl.style.backgroundPosition = `${backgroundX}px ${backgroundY}px`;
+    canvas.classList.add("is-magnifier-active");
+  }
+
+  function handlePreferenceChange() {
+    if (!canMagnify()) {
+      hideMagnifier();
+    }
+  }
+
+  canvas.addEventListener("mousemove", updateMagnifierFromEvent);
+  canvas.addEventListener("mouseenter", updateMagnifierFromEvent);
+  canvas.addEventListener("mouseleave", hideMagnifier);
+
+  if (typeof reducedMotion.addEventListener === "function") {
+    reducedMotion.addEventListener("change", handlePreferenceChange);
+  } else if (typeof reducedMotion.addListener === "function") {
+    reducedMotion.addListener(handlePreferenceChange);
+  }
+
+  if (typeof finePointer.addEventListener === "function") {
+    finePointer.addEventListener("change", handlePreferenceChange);
+  } else if (typeof finePointer.addListener === "function") {
+    finePointer.addListener(handlePreferenceChange);
+  }
+
+  refreshCanvasMagnifierEffects = () => {
+    handlePreferenceChange();
+  };
+
+  handlePreferenceChange();
+}
+
 function initializeParticleField() {
   if (!particleField) {
     return;
@@ -1898,7 +2093,12 @@ function getSelectionPicks() {
 
 async function renderSelectedLayers(
   successMessage,
-  { disableActions = false, blurDuringLoad = false, showRandomizeLoading = false } = {}
+  {
+    disableActions = false,
+    blurDuringLoad = false,
+    showRandomizeLoading = false,
+    shuffleScope = "all"
+  } = {}
 ) {
   const picks = getSelectionPicks();
   const requestId = ++renderRequestId;
@@ -1944,8 +2144,8 @@ async function renderSelectedLayers(
     return;
   }
 
-  startDiceShuffle(requestId);
-  startLayerNameShuffle(requestId);
+  startDiceShuffle(requestId, shuffleScope);
+  startLayerNameShuffle(requestId, shuffleScope);
 
   try {
     const loadedImages = await Promise.all(
@@ -1974,6 +2174,7 @@ async function renderSelectedLayers(
       const compositeCanvas = buildCompositeCanvas(loadedImages);
       compositePreviewImage.src = compositeCanvas.toDataURL("image/png");
       compositePreviewImage.style.display = "block";
+      syncCursorMagnifierSource();
     }
 
     if (!hasRenderedCompositeOnce) {
@@ -1987,7 +2188,7 @@ async function renderSelectedLayers(
     setStatus(successMessage || `Rendered ${picks.length} layers`);
   } catch {
     if (requestId === renderRequestId) {
-      setStatus("Could not load one or more selected images");
+      setStatus("Error: please refresh");
     }
   } finally {
     stopDiceShuffle(requestId);
@@ -2209,7 +2410,8 @@ async function randomizeCategory(layerName) {
   updateCategoryView(layerName);
   await renderSelectedLayers(`Randomized ${formatLayerName(layerName)} layer`, {
     disableActions: true,
-    blurDuringLoad: true
+    blurDuringLoad: true,
+    shuffleScope: [layerName]
   });
 }
 
@@ -2440,7 +2642,7 @@ async function initialize() {
   createLayerElements();
   loadFavoritesFromStorage();
   loadDisabledLayersFromStorage();
-  renderFavoritesGallery();
+  renderFavoritesGallery({ hydratePreviews: false });
   updateFavoriteButtonState();
 
   try {
@@ -2452,11 +2654,13 @@ async function initialize() {
 
     manifest = await response.json();
     createLayerControls();
-    renderFavoritesGallery();
 
     setActionButtonsDisabled(false);
     await randomizeLayers({ visibilityMode: "show-all" });
-    warmImageCacheInBackground();
+    renderFavoritesGallery({ hydratePreviews: true });
+    scheduleIdleTask(() => {
+      warmImageCacheInBackground();
+    });
   } catch {
     setStatus("Missing manifest. Run: node scripts/generate-manifest.mjs");
     setActionButtonsDisabled(true);
@@ -2502,6 +2706,19 @@ if (enableEffectsCheckbox) {
 
   enableEffectsCheckbox.addEventListener("input", handleEnableEffectsChange);
   enableEffectsCheckbox.addEventListener("change", handleEnableEffectsChange);
+}
+
+if (enableMagnifierCheckbox) {
+  const handleEnableMagnifierChange = () => {
+    persistSettingsToggles();
+
+    if (typeof refreshCanvasMagnifierEffects === "function") {
+      refreshCanvasMagnifierEffects();
+    }
+  };
+
+  enableMagnifierCheckbox.addEventListener("input", handleEnableMagnifierChange);
+  enableMagnifierCheckbox.addEventListener("change", handleEnableMagnifierChange);
 }
 
 if (clearFavoritesBtn) {
@@ -2583,5 +2800,6 @@ setRandomizeLoading(false);
 loadSettingsTogglesFromStorage();
 initializeParticleField();
 initializeCanvasTilt();
+initializeCanvasMagnifier();
 applyEffectsPreference();
 initialize();
