@@ -435,6 +435,11 @@ body.sidebar-collapsed .sidebar-open-btn {
   object-fit: contain;
   image-rendering: auto;
   pointer-events: none;
+  transition: filter 180ms ease, opacity 180ms ease;
+}
+
+.canvas.is-loading-blur img {
+  filter: blur(5px) brightness(0.92);
 }
 
 .actions {
