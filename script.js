@@ -18,12 +18,23 @@ const EYE_CLOSED_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.9 10.9 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3.4 4.2"/><path d="M6.2 6.3A18 18 0 0 0 2 12s3.5 7 10 7c1.4 0 2.6-.3 3.8-.7"/></svg>';
 const LOCK_INLINE_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10h-1V7a4 4 0 0 0-8 0v3H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-7-3a2 2 0 0 1 4 0v3h-4V7z"/></svg>';
+const FOLDER_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z"/></svg>';
+const BACK_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5 3 12l7 7"/><path d="M3 12h18"/></svg>';
+const FAVORITES_STORAGE_KEY = "afella2:favorites:v1";
 
+const sidebar = document.getElementById("sidebar");
 const canvas = document.getElementById("canvas");
+const layersView = document.getElementById("layersView");
+const galleryView = document.getElementById("galleryView");
+const galleryGrid = document.getElementById("galleryGrid");
 const layerControls = document.getElementById("layerControls");
 const randomizeBtn = document.getElementById("randomizeBtn");
 const downloadBtn = document.getElementById("downloadBtn");
+const favoriteBtn = document.getElementById("favoriteBtn");
 const statusRefreshBtn = document.getElementById("statusRefreshBtn");
+const sidebarModeBtn = document.getElementById("sidebarModeBtn");
 const sidebarCloseBtn = document.getElementById("sidebarCloseBtn");
 const sidebarOpenBtn = document.getElementById("sidebarOpenBtn");
 const statusEl = document.getElementById("status");
@@ -42,6 +53,7 @@ let previousStackSnapshot = null;
 let actionButtonsDisabled = true;
 let actionDisableOwnerRequestId = null;
 let randomizeLoadingOwnerRequestId = null;
+let favorites = [];
 
 function createLayerElements() {
   canvas.innerHTML = "";
@@ -91,6 +103,7 @@ function setActionButtonsDisabled(disabled) {
   actionButtonsDisabled = disabled;
   randomizeBtn.disabled = disabled;
   downloadBtn.disabled = disabled;
+  updateFavoriteButtonState();
   updateStatusRefreshButtonState();
 }
 
@@ -132,6 +145,286 @@ function setSidebarCollapsed(collapsed) {
   sidebarOpenBtn.setAttribute("aria-hidden", String(!collapsed));
   sidebarOpenBtn.setAttribute("aria-expanded", String(!collapsed));
   sidebarCloseBtn.setAttribute("aria-expanded", String(!collapsed));
+}
+
+function setSidebarGalleryView(showGallery) {
+  if (!sidebar || !layersView || !galleryView || !sidebarModeBtn) {
+    return;
+  }
+
+  sidebar.classList.toggle("is-gallery-view", showGallery);
+  layersView.hidden = showGallery;
+  galleryView.hidden = !showGallery;
+
+  sidebarModeBtn.innerHTML = showGallery ? BACK_ICON : FOLDER_ICON;
+  sidebarModeBtn.setAttribute(
+    "aria-label",
+    showGallery ? "Back to layers" : "Open saved gallery"
+  );
+  sidebarModeBtn.title = showGallery ? "Back to layers" : "Open saved gallery";
+}
+
+function buildSnapshotSignature(snapshot) {
+  const normalized = {};
+
+  LAYER_ORDER.forEach((layerName) => {
+    const source = snapshot[layerName] || {};
+    const disabled = Array.isArray(source.disabled)
+      ? Array.from(new Set(source.disabled.filter((item) => typeof item === "string"))).sort()
+      : [];
+
+    normalized[layerName] = {
+      selected: typeof source.selected === "string" ? source.selected : null,
+      locked: typeof source.locked === "string" ? source.locked : null,
+      hidden: Boolean(source.hidden),
+      disabled
+    };
+  });
+
+  return JSON.stringify(normalized);
+}
+
+function getCurrentSnapshotSignature() {
+  if (!hasSelectedLayers()) {
+    return null;
+  }
+
+  return buildSnapshotSignature(createStackSnapshot());
+}
+
+function loadFavoritesFromStorage() {
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+
+    if (!raw) {
+      favorites = [];
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (!Array.isArray(parsed)) {
+      favorites = [];
+      return;
+    }
+
+    favorites = parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== "object" || !entry.snapshot) {
+          return null;
+        }
+
+        const id = typeof entry.id === "string" ? entry.id : null;
+        const preview = 
+          typeof entry.preview === "string" && entry.preview.length > 0
+            ? entry.preview
+            : null;
+        const snapshot = entry.snapshot;
+
+        if (!id) {
+          return null;
+        }
+
+        return {
+          id,
+          preview,
+          snapshot,
+          signature: buildSnapshotSignature(snapshot),
+          savedAt:
+            typeof entry.savedAt === "number" && Number.isFinite(entry.savedAt)
+              ? entry.savedAt
+              : Date.now()
+        };
+      })
+      .filter(Boolean);
+
+    // Rewrite in compact format so large legacy preview payloads don't block future saves.
+    persistFavorites();
+  } catch {
+    favorites = [];
+  }
+}
+
+function persistFavorites() {
+  try {
+    const serialized = favorites.map((item) => ({
+      id: item.id,
+      snapshot: item.snapshot,
+      savedAt: item.savedAt
+    }));
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(serialized));
+  } catch {
+    // Ignore storage failures silently.
+  }
+}
+
+function getSnapshotPicks(snapshot) {
+  return LAYER_ORDER.flatMap((layerName) => {
+    const state = getLayerState(layerName);
+    const layerSnapshot = snapshot[layerName];
+
+    if (!state || !layerSnapshot || layerSnapshot.hidden) {
+      return [];
+    }
+
+    const selected =
+      typeof layerSnapshot.selected === "string" &&
+      state.files.includes(layerSnapshot.selected)
+        ? layerSnapshot.selected
+        : null;
+
+    if (!selected) {
+      return [];
+    }
+
+    const disabledSet = new Set(
+      Array.isArray(layerSnapshot.disabled) ? layerSnapshot.disabled : []
+    );
+
+    if (disabledSet.has(selected)) {
+      return [];
+    }
+
+    return [{ layerName, source: selected }];
+  });
+}
+
+async function buildSnapshotPreview(snapshot) {
+  const picks = getSnapshotPicks(snapshot);
+
+  if (picks.length === 0) {
+    return "";
+  }
+
+  const images = await Promise.all(picks.map((pick) => preload(pick.source)));
+  const previewCanvas = buildCompositeCanvas(images);
+  return previewCanvas.toDataURL("image/png");
+}
+
+async function hydrateFavoritePreview(favorite, previewEl) {
+  const favoriteId = favorite.id;
+  previewEl.dataset.favoriteId = favoriteId;
+
+  if (favorite.preview) {
+    previewEl.src = favorite.preview;
+    return;
+  }
+
+  try {
+    const src = await buildSnapshotPreview(favorite.snapshot);
+
+    if (previewEl.dataset.favoriteId !== favoriteId || !src) {
+      return;
+    }
+
+    previewEl.src = src;
+    favorite.preview = src;
+  } catch {
+    // Ignore preview generation failures silently.
+  }
+}
+
+function renderFavoritesGallery() {
+  if (!galleryGrid) {
+    return;
+  }
+
+  galleryGrid.innerHTML = "";
+
+  favorites.forEach((favorite) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "gallery-item";
+    item.setAttribute("aria-label", "Load saved favorite");
+    item.title = "Load saved favorite";
+
+    const preview = document.createElement("img");
+    preview.alt = "Saved favorite preview";
+    hydrateFavoritePreview(favorite, preview);
+
+    item.appendChild(preview);
+    item.addEventListener("click", () => {
+      loadFavoriteById(favorite.id);
+    });
+
+    galleryGrid.appendChild(item);
+  });
+}
+
+function updateFavoriteButtonState() {
+  if (!favoriteBtn) {
+    return;
+  }
+
+  const currentSignature = getCurrentSnapshotSignature();
+  const isFavorited =
+    Boolean(currentSignature) &&
+    favorites.some((favorite) => favorite.signature === currentSignature);
+
+  favoriteBtn.classList.toggle("is-favorited", isFavorited);
+  favoriteBtn.setAttribute("aria-pressed", String(isFavorited));
+  favoriteBtn.disabled = actionButtonsDisabled || !currentSignature;
+  favoriteBtn.setAttribute(
+    "aria-label",
+    isFavorited ? "Remove current favorite" : "Save current favorite"
+  );
+  favoriteBtn.title = isFavorited ? "Remove current favorite" : "Save current favorite";
+}
+
+async function loadFavoriteById(id) {
+  const favorite = favorites.find((item) => item.id === id);
+
+  if (!favorite) {
+    return;
+  }
+
+  capturePreviousStackSnapshot();
+  applyStackSnapshot(favorite.snapshot);
+  updateAllCategoryViews();
+  setSidebarGalleryView(false);
+  await renderSelectedLayers("Loaded favorite", {
+    disableActions: true
+  });
+}
+
+function saveCurrentFavorite() {
+  if (!favoriteBtn) {
+    return;
+  }
+
+  if (!hasSelectedLayers()) {
+    setStatus("No layers selected");
+    return;
+  }
+
+  const snapshot = createStackSnapshot();
+  const signature = buildSnapshotSignature(snapshot);
+  const existing = favorites.find((item) => item.signature === signature);
+
+  if (existing) {
+    favorites = favorites.filter((item) => item.signature !== signature);
+    persistFavorites();
+    renderFavoritesGallery();
+    updateFavoriteButtonState();
+    setStatus("Removed from favorites");
+    return;
+  }
+
+  favorites.unshift({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    preview:
+      compositePreviewImage && typeof compositePreviewImage.src === "string"
+        ? compositePreviewImage.src
+        : null,
+    snapshot,
+    signature,
+    savedAt: Date.now()
+  });
+
+  persistFavorites();
+  renderFavoritesGallery();
+  updateFavoriteButtonState();
+  setStatus("Saved to favorites");
 }
 
 function hasSelectedLayers() {
@@ -632,6 +925,7 @@ async function renderSelectedLayers(
 
   if (picks.length === 0) {
     setStatus("No layers selected");
+    updateFavoriteButtonState();
     if (showRandomizeLoading && randomizeLoadingOwnerRequestId === requestId) {
       randomizeLoadingOwnerRequestId = null;
       setRandomizeLoading(false);
@@ -690,6 +984,10 @@ async function renderSelectedLayers(
     if (disableActions && actionDisableOwnerRequestId === requestId) {
       actionDisableOwnerRequestId = null;
       setActionButtonsDisabled(false);
+    }
+
+    if (requestId === renderRequestId) {
+      updateFavoriteButtonState();
     }
   }
 }
@@ -996,6 +1294,9 @@ async function randomizeLayers() {
 
 async function initialize() {
   createLayerElements();
+  loadFavoritesFromStorage();
+  renderFavoritesGallery();
+  updateFavoriteButtonState();
 
   try {
     const response = await fetch("layers-manifest.json", { cache: "no-store" });
@@ -1006,6 +1307,7 @@ async function initialize() {
 
     manifest = await response.json();
     createLayerControls();
+    renderFavoritesGallery();
 
     setActionButtonsDisabled(false);
     await randomizeLayers();
@@ -1022,6 +1324,18 @@ if (statusRefreshBtn) {
   statusRefreshBtn.addEventListener("click", restorePreviousStack);
 }
 
+if (favoriteBtn) {
+  favoriteBtn.addEventListener("click", saveCurrentFavorite);
+}
+
+if (sidebarModeBtn) {
+  sidebarModeBtn.addEventListener("click", () => {
+    setSidebarGalleryView(
+      sidebar ? !sidebar.classList.contains("is-gallery-view") : false
+    );
+  });
+}
+
 if (sidebarCloseBtn) {
   sidebarCloseBtn.addEventListener("click", () => {
     setSidebarCollapsed(true);
@@ -1035,6 +1349,7 @@ if (sidebarOpenBtn) {
 }
 
 setSidebarCollapsed(false);
+setSidebarGalleryView(false);
 setRandomizeLoading(false);
 
 initializeParticleField();
