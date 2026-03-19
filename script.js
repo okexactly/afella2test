@@ -2426,7 +2426,8 @@ async function renderSelectedLayers(
     disableActions = false,
     blurDuringLoad = false,
     showRandomizeLoading = false,
-    shuffleScope = "all"
+    shuffleScope = "all",
+    showLoadingAnimations = true
   } = {}
 ) {
   const picks = getSelectionPicks();
@@ -2473,8 +2474,13 @@ async function renderSelectedLayers(
     return;
   }
 
-  startDiceShuffle(requestId, shuffleScope);
-  startLayerNameShuffle(requestId, shuffleScope);
+  if (showLoadingAnimations) {
+    startDiceShuffle(requestId, shuffleScope);
+    startLayerNameShuffle(requestId, shuffleScope);
+  } else {
+    stopDiceShuffle();
+    stopLayerNameShuffle();
+  }
 
   try {
     const loadedImages = await Promise.all(
@@ -3010,7 +3016,8 @@ async function initialize() {
         didApplySharePayload ? "Loaded shared image" : "Error: invalid share link",
         {
           disableActions: true,
-          blurDuringLoad: true
+          blurDuringLoad: true,
+          showLoadingAnimations: false
         }
       );
     } else {
