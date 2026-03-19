@@ -886,7 +886,7 @@ function decodeSharePayload(encodedPayload) {
   }
 }
 
-function getSharePayloadFromUrl() {
+function getRawShareTokenFromUrl() {
   if (typeof window === "undefined") {
     return null;
   }
@@ -915,7 +915,55 @@ function getSharePayloadFromUrl() {
     return null;
   }
 
-  return decodeSharePayload(encodedPayload);
+  return encodedPayload;
+}
+
+function getSharePayloadFromUrl() {
+  const rawShareToken = getRawShareTokenFromUrl();
+
+  if (!rawShareToken) {
+    return null;
+  }
+
+  return decodeSharePayload(rawShareToken);
+}
+
+function resolveSharedSource(state, source) {
+  if (!state || typeof source !== "string" || source.length === 0) {
+    return null;
+  }
+
+  if (state.files.includes(source)) {
+    return source;
+  }
+
+  const spaceEncoded = source.replace(/ /g, "%20");
+
+  if (state.files.includes(spaceEncoded)) {
+    return spaceEncoded;
+  }
+
+  let decodedSource = source;
+
+  try {
+    decodedSource = decodeURIComponent(source);
+  } catch {
+    decodedSource = source;
+  }
+
+  const matched = state.files.find((candidate) => {
+    if (candidate === source || candidate === spaceEncoded) {
+      return true;
+    }
+
+    try {
+      return decodeURIComponent(candidate) === decodedSource;
+    } catch {
+      return candidate === decodedSource;
+    }
+  });
+
+  return matched || null;
 }
 
 function applySharePayload(payload) {
@@ -923,7 +971,8 @@ function applySharePayload(payload) {
     return false;
   }
 
-  let applied = false;
+  let sawShareLayer = false;
+  let matchedSelections = 0;
 
   LAYER_ORDER.forEach((layerName) => {
     const state = getLayerState(layerName);
@@ -933,16 +982,17 @@ function applySharePayload(payload) {
       return;
     }
 
+    sawShareLayer = true;
     state.hidden = Boolean(layerPayload.h);
 
     const selected =
-      typeof layerPayload.s === "string" && state.files.includes(layerPayload.s)
-        ? layerPayload.s
+      typeof layerPayload.s === "string"
+        ? resolveSharedSource(state, layerPayload.s)
         : null;
 
     if (selected) {
       state.selected = selected;
-      applied = true;
+      matchedSelections += 1;
       return;
     }
 
@@ -951,7 +1001,7 @@ function applySharePayload(payload) {
     }
   });
 
-  return applied;
+  return sawShareLayer && (matchedSelections > 0 || Object.keys(payload.l).length > 0);
 }
 
 function updateShareLinkOutput(link) {
@@ -2936,15 +2986,33 @@ async function initialize() {
     createLayerControls();
 
     setActionButtonsDisabled(false);
-    const sharePayload = getSharePayloadFromUrl();
+    const rawShareToken = getRawShareTokenFromUrl();
+    const hasShareToken = Boolean(rawShareToken);
+    const sharePayload = rawShareToken ? decodeSharePayload(rawShareToken) : null;
     const didApplySharePayload = sharePayload ? applySharePayload(sharePayload) : false;
 
-    if (didApplySharePayload) {
+    if (hasShareToken) {
+      if (!didApplySharePayload) {
+        LAYER_ORDER.forEach((layerName) => {
+          const state = getLayerState(layerName);
+
+          if (!state) {
+            return;
+          }
+
+          state.hidden = false;
+          state.selected = firstAvailableSource(state);
+        });
+      }
+
       updateAllCategoryViews();
-      await renderSelectedLayers("Loaded shared image", {
-        disableActions: true,
-        blurDuringLoad: true
-      });
+      await renderSelectedLayers(
+        didApplySharePayload ? "Loaded shared image" : "Error: invalid share link",
+        {
+          disableActions: true,
+          blurDuringLoad: true
+        }
+      );
     } else {
       await randomizeLayers({ visibilityMode: "show-all" });
     }
