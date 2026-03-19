@@ -66,9 +66,14 @@ const BACK_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5 3 12l7 7"/><path d="M3 12h18"/></svg>';
 const GEAR_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><path d="m3 13.4 1.8.4a7.4 7.4 0 0 0 .7 1.7l-1 1.6 2.2 2.2 1.6-1a7.4 7.4 0 0 0 1.7.7l.4 1.8h3.2l.4-1.8a7.4 7.4 0 0 0 1.7-.7l1.6 1 2.2-2.2-1-1.6a7.4 7.4 0 0 0 .7-1.7l1.8-.4v-3.2l-1.8-.4a7.4 7.4 0 0 0-.7-1.7l1-1.6-2.2-2.2-1.6 1a7.4 7.4 0 0 0-1.7-.7L13.4 3h-3.2l-.4 1.8a7.4 7.4 0 0 0-1.7.7l-1.6-1-2.2 2.2 1 1.6a7.4 7.4 0 0 0-.7 1.7L3 10.2Z"/></svg>';
+const SHARE_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6h4v4"/><path d="M10 14 19 5"/><path d="M6 9v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-9"/></svg>';
 const FAVORITES_STORAGE_KEY = "afella2:favorites:v1";
 const DISABLED_LAYERS_STORAGE_KEY = "afella2:disabled-layers:v1";
 const SETTINGS_TOGGLES_STORAGE_KEY = "afella2:settings-toggles:v1";
+const SHARE_LINK_QUERY_KEY = "share";
+const SHARE_PAYLOAD_VERSION = 1;
+const GITHUB_PAGES_SHARE_BASE_URL = "https://okexactly.github.io/afella2test/";
 const METADATA_TEMPLATE_PATH = "0.json";
 const DEFAULT_METADATA_NAME = "afella 2 custom";
 const DEFAULT_METADATA_DESCRIPTION = "transformed magical girl";
@@ -84,6 +89,7 @@ const canvas = document.getElementById("canvas");
 const layersView = document.getElementById("layersView");
 const galleryView = document.getElementById("galleryView");
 const settingsView = document.getElementById("settingsView");
+const shareView = document.getElementById("shareView");
 const mintView = document.getElementById("mintView");
 const galleryGrid = document.getElementById("galleryGrid");
 const favoritesCount = document.getElementById("favoritesCount");
@@ -95,6 +101,7 @@ const statusRefreshBtn = document.getElementById("statusRefreshBtn");
 const sidebarMintBtn = document.getElementById("sidebarMintBtn");
 const sidebarModeBtn = document.getElementById("sidebarModeBtn");
 const sidebarSettingsBtn = document.getElementById("sidebarSettingsBtn");
+const sidebarShareBtn = document.getElementById("sidebarShareBtn");
 const sidebarCloseBtn = document.getElementById("sidebarCloseBtn");
 const sidebarOpenBtn = document.getElementById("sidebarOpenBtn");
 const statusEl = document.getElementById("status");
@@ -105,6 +112,8 @@ const enableEffectsCheckbox = document.getElementById("enableEffectsCheckbox");
 const enableMagnifierCheckbox = document.getElementById("enableMagnifierCheckbox");
 const downloadFavoritesBtn = document.getElementById("downloadFavoritesBtn");
 const clearFavoritesBtn = document.getElementById("clearFavoritesBtn");
+const generateShareLinkBtn = document.getElementById("generateShareLinkBtn");
+const shareLinkValue = document.getElementById("shareLinkValue");
 const clearFavoritesConfirmModal = document.getElementById("clearFavoritesConfirmModal");
 const clearFavoritesConfirmYesBtn = document.getElementById("clearFavoritesConfirmYesBtn");
 const clearFavoritesConfirmNoBtn = document.getElementById("clearFavoritesConfirmNoBtn");
@@ -146,7 +155,7 @@ function getSettingsToggleEntries() {
     ["downloadMetadataCheckbox", downloadMetadataCheckbox, false],
     ["allowRandomizeHideCheckbox", allowRandomizeHideCheckbox, true],
     ["enableEffectsCheckbox", enableEffectsCheckbox, true],
-    ["enableMagnifierCheckbox", enableMagnifierCheckbox, true]
+    ["enableMagnifierCheckbox", enableMagnifierCheckbox, false]
   ];
 }
 
@@ -684,12 +693,15 @@ function setSidebarView(mode) {
   }
 
   const hasSettingsView = Boolean(settingsView);
+  const hasShareView = Boolean(shareView);
   const hasMintView = Boolean(mintView);
   const nextMode =
     mode === "gallery"
       ? "gallery"
       : mode === "settings" && hasSettingsView
         ? "settings"
+        : mode === "share" && hasShareView
+          ? "share"
         : mode === "mint" && hasMintView
           ? "mint"
         : "layers";
@@ -697,16 +709,21 @@ function setSidebarView(mode) {
 
   const showGallery = nextMode === "gallery";
   const showSettings = nextMode === "settings";
+  const showShare = nextMode === "share";
   const showMint = nextMode === "mint";
 
   sidebar.classList.toggle("is-gallery-view", showGallery);
   sidebar.classList.toggle("is-settings-view", showSettings);
+  sidebar.classList.toggle("is-share-view", showShare);
   sidebar.classList.toggle("is-mint-view", showMint);
 
   layersView.hidden = nextMode !== "layers";
   galleryView.hidden = !showGallery;
   if (settingsView) {
     settingsView.hidden = !showSettings;
+  }
+  if (shareView) {
+    shareView.hidden = !showShare;
   }
   if (mintView) {
     mintView.hidden = !showMint;
@@ -728,6 +745,15 @@ function setSidebarView(mode) {
       showSettings ? "Back to layers" : "Open settings"
     );
     sidebarSettingsBtn.title = showSettings ? "Back to layers" : "Open settings";
+  }
+
+  if (sidebarShareBtn) {
+    sidebarShareBtn.innerHTML = showShare ? BACK_ICON : SHARE_ICON;
+    sidebarShareBtn.setAttribute(
+      "aria-label",
+      showShare ? "Back to layers" : "Open share menu"
+    );
+    sidebarShareBtn.title = showShare ? "Back to layers" : "Open share menu";
   }
 
   if (sidebarMintBtn) {
@@ -756,6 +782,259 @@ function buildSnapshotSignature(snapshot) {
   });
 
   return JSON.stringify(normalized);
+}
+
+function encodeBase64UrlFromUtf8(value) {
+  try {
+    const bytes =
+      typeof TextEncoder !== "undefined"
+        ? new TextEncoder().encode(value)
+        : Uint8Array.from(unescape(encodeURIComponent(value)), (char) =>
+            char.charCodeAt(0)
+          );
+    let binary = "";
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  } catch {
+    return null;
+  }
+}
+
+function decodeUtf8FromBase64Url(value) {
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+
+    if (typeof TextDecoder !== "undefined") {
+      return new TextDecoder().decode(bytes);
+    }
+
+    let escaped = "";
+    bytes.forEach((byte) => {
+      escaped += `%${byte.toString(16).padStart(2, "0")}`;
+    });
+    return decodeURIComponent(escaped);
+  } catch {
+    return null;
+  }
+}
+
+function createSharePayload() {
+  const layers = {};
+
+  LAYER_ORDER.forEach((layerName) => {
+    const state = getLayerState(layerName);
+
+    if (!state) {
+      return;
+    }
+
+    layers[layerName] = {
+      s: typeof state.selected === "string" ? state.selected : "",
+      h: state.hidden ? 1 : 0
+    };
+  });
+
+  return {
+    v: SHARE_PAYLOAD_VERSION,
+    l: layers
+  };
+}
+
+function encodeSharePayload(payload) {
+  try {
+    return encodeBase64UrlFromUtf8(JSON.stringify(payload));
+  } catch {
+    return null;
+  }
+}
+
+function decodeSharePayload(encodedPayload) {
+  if (typeof encodedPayload !== "string" || encodedPayload.length === 0) {
+    return null;
+  }
+
+  const decoded = decodeUtf8FromBase64Url(encodedPayload);
+
+  if (!decoded) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(decoded);
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    if (parsed.v !== SHARE_PAYLOAD_VERSION) {
+      return null;
+    }
+
+    if (!parsed.l || typeof parsed.l !== "object" || Array.isArray(parsed.l)) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function getSharePayloadFromUrl() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  let encodedPayload = "";
+
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    encodedPayload = searchParams.get(SHARE_LINK_QUERY_KEY) || "";
+  } catch {
+    encodedPayload = "";
+  }
+
+  if (!encodedPayload && window.location.hash) {
+    const hashValue = window.location.hash.replace(/^#/, "");
+
+    try {
+      const hashParams = new URLSearchParams(hashValue);
+      encodedPayload = hashParams.get(SHARE_LINK_QUERY_KEY) || "";
+    } catch {
+      encodedPayload = "";
+    }
+  }
+
+  if (!encodedPayload) {
+    return null;
+  }
+
+  return decodeSharePayload(encodedPayload);
+}
+
+function applySharePayload(payload) {
+  if (!payload || !payload.l || typeof payload.l !== "object") {
+    return false;
+  }
+
+  let applied = false;
+
+  LAYER_ORDER.forEach((layerName) => {
+    const state = getLayerState(layerName);
+    const layerPayload = payload.l[layerName];
+
+    if (!state || !layerPayload || typeof layerPayload !== "object") {
+      return;
+    }
+
+    state.hidden = Boolean(layerPayload.h);
+
+    const selected =
+      typeof layerPayload.s === "string" && state.files.includes(layerPayload.s)
+        ? layerPayload.s
+        : null;
+
+    if (selected) {
+      state.selected = selected;
+      applied = true;
+      return;
+    }
+
+    if (!state.selected || !state.files.includes(state.selected)) {
+      state.selected = firstAvailableSource(state);
+    }
+  });
+
+  return applied;
+}
+
+function updateShareLinkOutput(link) {
+  if (!shareLinkValue) {
+    return;
+  }
+
+  if (typeof link !== "string" || link.length === 0) {
+    shareLinkValue.value = "";
+    shareLinkValue.hidden = true;
+    return;
+  }
+
+  shareLinkValue.hidden = false;
+  shareLinkValue.value = link;
+}
+
+function resolveShareBaseUrl() {
+  if (typeof window === "undefined") {
+    return new URL(GITHUB_PAGES_SHARE_BASE_URL);
+  }
+
+  const host = (window.location.hostname || "").toLowerCase();
+  const isLocalHost =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".local");
+
+  if (isLocalHost) {
+    return new URL(GITHUB_PAGES_SHARE_BASE_URL);
+  }
+
+  const currentUrl = new URL(window.location.href);
+  currentUrl.hash = "";
+  currentUrl.search = "";
+  return currentUrl;
+}
+
+async function generateSharableLink() {
+  if (!hasSelectedLayers()) {
+    setStatus("No layers selected");
+    return;
+  }
+
+  const payload = createSharePayload();
+  const encodedPayload = encodeSharePayload(payload);
+
+  if (!encodedPayload) {
+    setStatus("Could not generate sharable link");
+    return;
+  }
+
+  let sharableUrl = "";
+
+  try {
+    const url = resolveShareBaseUrl();
+    url.searchParams.delete(SHARE_LINK_QUERY_KEY);
+
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    hashParams.set(SHARE_LINK_QUERY_KEY, encodedPayload);
+    url.hash = hashParams.toString();
+
+    sharableUrl = url.toString();
+  } catch {
+    setStatus("Could not generate sharable link");
+    return;
+  }
+
+  updateShareLinkOutput(sharableUrl);
+
+  let copied = false;
+
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(sharableUrl);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
+
+  setStatus(copied ? "Sharable link copied" : "Sharable link generated");
 }
 
 function getCurrentSnapshotSignature() {
@@ -2643,6 +2922,7 @@ async function initialize() {
   loadFavoritesFromStorage();
   loadDisabledLayersFromStorage();
   renderFavoritesGallery({ hydratePreviews: false });
+  updateShareLinkOutput("");
   updateFavoriteButtonState();
 
   try {
@@ -2656,7 +2936,19 @@ async function initialize() {
     createLayerControls();
 
     setActionButtonsDisabled(false);
-    await randomizeLayers({ visibilityMode: "show-all" });
+    const sharePayload = getSharePayloadFromUrl();
+    const didApplySharePayload = sharePayload ? applySharePayload(sharePayload) : false;
+
+    if (didApplySharePayload) {
+      updateAllCategoryViews();
+      await renderSelectedLayers("Loaded shared image", {
+        disableActions: true,
+        blurDuringLoad: true
+      });
+    } else {
+      await randomizeLayers({ visibilityMode: "show-all" });
+    }
+
     renderFavoritesGallery({ hydratePreviews: true });
     scheduleIdleTask(() => {
       warmImageCacheInBackground();
@@ -2688,6 +2980,21 @@ if (favoriteBtn) {
 
 if (downloadFavoritesBtn) {
   downloadFavoritesBtn.addEventListener("click", downloadAllFavorites);
+}
+
+if (generateShareLinkBtn) {
+  generateShareLinkBtn.addEventListener("click", () => {
+    generateSharableLink();
+  });
+}
+
+if (shareLinkValue) {
+  const selectShareLinkText = () => {
+    shareLinkValue.select();
+  };
+
+  shareLinkValue.addEventListener("click", selectShareLinkText);
+  shareLinkValue.addEventListener("focus", selectShareLinkText);
 }
 
 if (downloadMetadataCheckbox) {
@@ -2778,6 +3085,13 @@ if (sidebarSettingsBtn) {
   sidebarSettingsBtn.addEventListener("click", (event) => {
     event.preventDefault();
     setSidebarView(sidebarViewMode === "settings" ? "layers" : "settings");
+  });
+}
+
+if (sidebarShareBtn) {
+  sidebarShareBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    setSidebarView(sidebarViewMode === "share" ? "layers" : "share");
   });
 }
 

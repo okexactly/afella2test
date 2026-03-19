@@ -301,12 +301,17 @@ body.sidebar-collapsed .sidebar-open-btn {
   display: none !important;
 }
 
+.sidebar.is-gallery-view .sidebar-view-share {
+  display: none !important;
+}
+
 .sidebar.is-gallery-view .sidebar-view-mint {
   display: none !important;
 }
 
 .sidebar.is-settings-view .sidebar-view-layers,
 .sidebar.is-settings-view .sidebar-view-gallery,
+.sidebar.is-settings-view .sidebar-view-share,
 .sidebar.is-settings-view .sidebar-view-mint {
   display: none !important;
 }
@@ -319,9 +324,25 @@ body.sidebar-collapsed .sidebar-open-btn {
   min-height: 0;
 }
 
+.sidebar.is-share-view .sidebar-view-layers,
+.sidebar.is-share-view .sidebar-view-gallery,
+.sidebar.is-share-view .sidebar-view-settings,
+.sidebar.is-share-view .sidebar-view-mint {
+  display: none !important;
+}
+
+.sidebar:not(.is-share-view) .sidebar-view-share {
+  display: none !important;
+}
+
+.sidebar-view-share {
+  min-height: 0;
+}
+
 .sidebar.is-mint-view .sidebar-view-layers,
 .sidebar.is-mint-view .sidebar-view-gallery,
-.sidebar.is-mint-view .sidebar-view-settings {
+.sidebar.is-mint-view .sidebar-view-settings,
+.sidebar.is-mint-view .sidebar-view-share {
   display: none !important;
 }
 
@@ -520,6 +541,24 @@ body.sidebar-collapsed .sidebar-open-btn {
   line-height: 1.1;
 }
 
+.settings-option-magnifier .settings-toggle-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28rem;
+  white-space: nowrap;
+  font-size: 0.77rem;
+  letter-spacing: 0.005em;
+}
+
+.settings-toggle-note {
+  font-size: 0.61rem;
+  color: rgba(160, 176, 196, 0.54);
+  margin-left: 0;
+  letter-spacing: 0;
+  opacity: 0.82;
+  transform: translateY(1px);
+}
+
 .settings-download-row {
   display: flex;
   justify-content: center;
@@ -584,6 +623,55 @@ body.sidebar-collapsed .sidebar-open-btn {
 .settings-clear-favorites:hover {
   color: #ff8a8a;
   opacity: 1;
+}
+
+.share-controls {
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(14, 18, 22, 0.88);
+  padding: 0.94rem 0.65rem;
+  display: grid;
+  align-content: start;
+  gap: 0.72rem;
+}
+
+.share-generate-btn {
+  border: 1px solid rgba(120, 146, 175, 0.55);
+  border-radius: 8px;
+  background: rgba(11, 16, 21, 0.8);
+  color: #d4e3f2;
+  font-size: 0.84rem;
+  text-transform: lowercase;
+  letter-spacing: 0.01em;
+  padding: 0.5rem 0.58rem;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.share-generate-btn:hover {
+  border-color: rgba(157, 255, 224, 0.78);
+  color: #e2eefb;
+}
+
+.share-link-value {
+  width: 100%;
+  border: 1px solid rgba(96, 115, 136, 0.62);
+  border-radius: 8px;
+  background: rgba(9, 13, 18, 0.88);
+  color: #c8d9ed;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  padding: 0.42rem 0.5rem;
+  min-height: 2.25rem;
+  text-overflow: ellipsis;
+}
+
+.share-link-value:focus {
+  outline: 0;
+  border-color: rgba(101, 162, 255, 0.72);
+  box-shadow: 0 0 0 2px rgba(101, 162, 255, 0.22);
 }
 
 body.confirm-modal-open {
@@ -1597,6 +1685,7 @@ body.is-rendering-layers .status-row .download-btn:disabled {
   .sidebar-view-layers,
   .sidebar-view-gallery,
   .sidebar-view-settings,
+  .sidebar-view-share,
   .sidebar-view-mint {
     height: 100%;
     min-height: 0;
@@ -1607,6 +1696,7 @@ body.is-rendering-layers .status-row .download-btn:disabled {
   }
 
   .settings-controls,
+  .share-controls,
   .mint-controls,
   .gallery-grid {
     min-height: 0;
