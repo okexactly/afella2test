@@ -655,6 +655,53 @@ body.sidebar-collapsed .sidebar-open-btn {
   color: #e2eefb;
 }
 
+.share-link-row {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.share-link-row::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: -52%;
+  width: 46%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(214, 236, 255, 0.18) 38%,
+    rgba(234, 247, 255, 0.75) 50%,
+    rgba(214, 236, 255, 0.18) 62%,
+    transparent 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(0) skewX(-18deg);
+}
+
+.share-link-row.is-shimmering::after {
+  animation: share-link-shimmer 760ms ease;
+}
+
+@keyframes share-link-shimmer {
+  0% {
+    opacity: 0;
+    transform: translateX(0) skewX(-18deg);
+  }
+
+  18% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(340%) skewX(-18deg);
+  }
+}
+
 .share-link-value {
   width: 100%;
   border: 1px solid rgba(96, 115, 136, 0.62);
@@ -663,7 +710,7 @@ body.sidebar-collapsed .sidebar-open-btn {
   color: #c8d9ed;
   font-size: 0.74rem;
   line-height: 1.2;
-  padding: 0.42rem 0.5rem;
+  padding: 0.42rem 2.05rem 0.42rem 0.5rem;
   min-height: 2.25rem;
   text-overflow: ellipsis;
 }
@@ -672,6 +719,52 @@ body.sidebar-collapsed .sidebar-open-btn {
   outline: 0;
   border-color: rgba(101, 162, 255, 0.72);
   box-shadow: 0 0 0 2px rgba(101, 162, 255, 0.22);
+}
+
+.share-link-copy-btn {
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  transform: translateY(-50%);
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #adc2da;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.82;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.share-link-copy-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.share-link-copy-btn:hover {
+  opacity: 1;
+  color: #deeeff;
+  background: rgba(22, 31, 41, 0.45);
+}
+
+.share-link-copy-btn:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px rgba(101, 162, 255, 0.34);
+}
+
+.share-link-copy-btn[hidden],
+.share-link-value[hidden] {
+  display: none !important;
 }
 
 body.confirm-modal-open {

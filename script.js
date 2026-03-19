@@ -67,7 +67,7 @@ const BACK_ICON =
 const GEAR_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><path d="m3 13.4 1.8.4a7.4 7.4 0 0 0 .7 1.7l-1 1.6 2.2 2.2 1.6-1a7.4 7.4 0 0 0 1.7.7l.4 1.8h3.2l.4-1.8a7.4 7.4 0 0 0 1.7-.7l1.6 1 2.2-2.2-1-1.6a7.4 7.4 0 0 0 .7-1.7l1.8-.4v-3.2l-1.8-.4a7.4 7.4 0 0 0-.7-1.7l1-1.6-2.2-2.2-1.6 1a7.4 7.4 0 0 0-1.7-.7L13.4 3h-3.2l-.4 1.8a7.4 7.4 0 0 0-1.7.7l-1.6-1-2.2 2.2 1 1.6a7.4 7.4 0 0 0-.7 1.7L3 10.2Z"/></svg>';
 const SHARE_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6h4v4"/><path d="M10 14 19 5"/><path d="M6 9v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-9"/></svg>';
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 11h4.4M13.6 11H18a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z"/><path d="M12 14V4.6"/><path d="m8.8 8.2 3.2-3.2 3.2 3.2"/></svg>';
 const FAVORITES_STORAGE_KEY = "afella2:favorites:v1";
 const DISABLED_LAYERS_STORAGE_KEY = "afella2:disabled-layers:v1";
 const SETTINGS_TOGGLES_STORAGE_KEY = "afella2:settings-toggles:v1";
@@ -114,6 +114,7 @@ const downloadFavoritesBtn = document.getElementById("downloadFavoritesBtn");
 const clearFavoritesBtn = document.getElementById("clearFavoritesBtn");
 const generateShareLinkBtn = document.getElementById("generateShareLinkBtn");
 const shareLinkValue = document.getElementById("shareLinkValue");
+const shareLinkCopyBtn = document.getElementById("shareLinkCopyBtn");
 const clearFavoritesConfirmModal = document.getElementById("clearFavoritesConfirmModal");
 const clearFavoritesConfirmYesBtn = document.getElementById("clearFavoritesConfirmYesBtn");
 const clearFavoritesConfirmNoBtn = document.getElementById("clearFavoritesConfirmNoBtn");
@@ -149,6 +150,8 @@ let metadataTemplate = null;
 let imageWarmupStarted = false;
 let hasRenderedCompositeOnce = false;
 let favoriteSparkleTimeoutId = null;
+let generatedShareImageSignature = null;
+let shareLinkShimmerTimeoutId = null;
 
 function getSettingsToggleEntries() {
   return [
@@ -1004,19 +1007,86 @@ function applySharePayload(payload) {
   return sawShareLayer && (matchedSelections > 0 || Object.keys(payload.l).length > 0);
 }
 
-function updateShareLinkOutput(link) {
+function buildCurrentImageSignature() {
+  const normalized = {};
+
+  LAYER_ORDER.forEach((layerName) => {
+    const state = getLayerState(layerName);
+
+    if (!state) {
+      return;
+    }
+
+    normalized[layerName] = {
+      selected: typeof state.selected === "string" ? state.selected : null,
+      hidden: Boolean(state.hidden)
+    };
+  });
+
+  return JSON.stringify(normalized);
+}
+
+function invalidateSharableLinkIfImageChanged() {
+  if (!generatedShareImageSignature) {
+    return;
+  }
+
+  if (generatedShareImageSignature === buildCurrentImageSignature()) {
+    return;
+  }
+
+  generatedShareImageSignature = null;
+  updateShareLinkOutput("");
+}
+
+function updateShareLinkOutput(link, imageSignature = null) {
   if (!shareLinkValue) {
     return;
   }
 
   if (typeof link !== "string" || link.length === 0) {
+    generatedShareImageSignature = null;
     shareLinkValue.value = "";
     shareLinkValue.hidden = true;
+    if (shareLinkCopyBtn) {
+      shareLinkCopyBtn.hidden = true;
+    }
     return;
   }
 
   shareLinkValue.hidden = false;
   shareLinkValue.value = link;
+
+  if (shareLinkCopyBtn) {
+    shareLinkCopyBtn.hidden = false;
+  }
+
+  generatedShareImageSignature = imageSignature;
+}
+
+function triggerShareLinkShimmer() {
+  if (!shareLinkValue || shareLinkValue.hidden || !shareLinkValue.value) {
+    return;
+  }
+
+  const shareLinkRow = shareLinkValue.closest(".share-link-row");
+
+  if (!shareLinkRow) {
+    return;
+  }
+
+  shareLinkRow.classList.remove("is-shimmering");
+  void shareLinkRow.offsetWidth;
+  shareLinkRow.classList.add("is-shimmering");
+
+  if (shareLinkShimmerTimeoutId !== null) {
+    window.clearTimeout(shareLinkShimmerTimeoutId);
+  }
+
+  shareLinkShimmerTimeoutId = window.setTimeout(() => {
+    shareLinkRow.classList.remove("is-shimmering");
+    shareLinkShimmerTimeoutId = null;
+  }, 760);
 }
 
 function resolveShareBaseUrl() {
@@ -1071,20 +1141,40 @@ async function generateSharableLink() {
     return;
   }
 
-  updateShareLinkOutput(sharableUrl);
+  updateShareLinkOutput(sharableUrl, buildCurrentImageSignature());
+  setStatus("Sharable link generated");
+}
 
+async function copyShareLinkToClipboard() {
+  if (!shareLinkValue || shareLinkValue.hidden || !shareLinkValue.value) {
+    setStatus("Generate a sharable link first");
+    return;
+  }
+
+  triggerShareLinkShimmer();
+
+  const link = shareLinkValue.value;
   let copied = false;
 
   if (navigator.clipboard && window.isSecureContext) {
     try {
-      await navigator.clipboard.writeText(sharableUrl);
+      await navigator.clipboard.writeText(link);
       copied = true;
     } catch {
       copied = false;
     }
   }
 
-  setStatus(copied ? "Sharable link copied" : "Sharable link generated");
+  if (!copied) {
+    shareLinkValue.focus();
+    shareLinkValue.select();
+    const didExecCopy =
+      typeof document.execCommand === "function" &&
+      document.execCommand("copy");
+    copied = Boolean(didExecCopy);
+  }
+
+  setStatus(copied ? "Sharable link copied" : "Could not copy sharable link");
 }
 
 function getCurrentSnapshotSignature() {
@@ -2520,6 +2610,7 @@ async function renderSelectedLayers(
       }
     }
 
+    invalidateSharableLinkIfImageChanged();
     setStatus(successMessage || `Rendered ${picks.length} layers`);
   } catch {
     if (requestId === renderRequestId) {
@@ -3063,12 +3154,21 @@ if (generateShareLinkBtn) {
   });
 }
 
+if (shareLinkCopyBtn) {
+  shareLinkCopyBtn.addEventListener("click", () => {
+    copyShareLinkToClipboard();
+  });
+}
+
 if (shareLinkValue) {
   const selectShareLinkText = () => {
     shareLinkValue.select();
   };
 
-  shareLinkValue.addEventListener("click", selectShareLinkText);
+  shareLinkValue.addEventListener("click", () => {
+    selectShareLinkText();
+    triggerShareLinkShimmer();
+  });
   shareLinkValue.addEventListener("focus", selectShareLinkText);
 }
 
